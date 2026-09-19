@@ -279,6 +279,12 @@ function viewProfile() {
     </div>
     ${isAdmin() ? `
     <div class="card">
+      <h2 style="margin-top:0">Brugere</h2>
+      <p class="small muted">Ny adgangskode til en bruger sættes fra GitHub: <a href="https://github.com/cvejleaa/smagning/actions/workflows/set-password.yml" target="_blank" rel="noopener">Actions → "Sæt adgangskode for bruger"</a> → "Run workflow" → skriv e-mail og ny adgangskode. Brugeren logges ud på alle enheder og kan logge ind med den nye kode et minut senere. Roller ændres i Firestore-konsollen.</p>
+      <table><thead><tr><th>Bruger</th><th>E-mail</th><th>Rolle</th></tr></thead>
+      <tbody>${Object.entries(users).sort((a, b) => (a[1].name || "").localeCompare(b[1].name || "", "da")).map(([uid, u]) => `<tr><td><span class="row" style="display:inline-flex;gap:6px">${avatarHtml(uid, "small")}${esc(u.name)}</span></td><td>${esc(u.email)}</td><td>${u.role === "admin" ? "administrator" : "medlem"}</td></tr>`).join("")}</tbody></table>
+    </div>
+    <div class="card">
       <h2 style="margin-top:0">AI-hjælp (Anthropic)</h2>
       <p class="small muted">Bruges til at foreslå rækkefølge og historier til en smagning. Nøglen gemmes i databasen, hvor kun administratorer kan læse den, og sendes direkte fra din browser til Anthropic. Opret en nøgle på console.anthropic.com.</p>
       <form id="aikey">

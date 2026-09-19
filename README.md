@@ -116,6 +116,21 @@ Manuelt deploy fra en maskine med repoet er stadig muligt:
    Authentication → Settings → Authorized domains. Ellers fejler Google-login
    med "unauthorized domain" (e-mail-login virker uanset).
 
+### Ny adgangskode til en bruger
+
+Firebase-klienten kan ikke sætte andres adgangskoder, og Cloud Functions
+kræver Blaze. Derfor gøres det fra GitHub med servicekontoen: Actions →
+"Sæt adgangskode for bruger" → "Run workflow" → e-mail og ny adgangskode.
+Workflowet kører `tools/set-password.mjs` (Firebase Admin SDK), sætter
+koden og logger brugeren ud på alle enheder. Adgangskoden maskeres i
+loggen, men workflow-inputs kan ses af dem, der har adgang til repoets
+Actions-historik, så bed brugeren skifte kode efter første login. Admin ser
+brugerlisten og linket under Profil.
+
+Lokal test mod emulatoren:
+`FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099 node tools/set-password.mjs bo@test.dk nykode123`
+(kræver `firebase-admin` installeret).
+
 ### Hvor fejl viser sig
 
 - Klientfejl vises i den røde boks øverst på siden og i browserens konsol.
