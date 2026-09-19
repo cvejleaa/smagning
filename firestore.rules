@@ -43,6 +43,12 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // Admins egne ord til duft/smag/aromaer – alle må læse (medlemmernes aromaliste), kun admin skriver.
+    match /settings/{docId} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
     // Rombiblioteket er administratorens egen database: master-data pr. rom + billede.
     // Kun admin – et medlem må ikke kunne kigge i biblioteket under en blindsmagning.
     match /rumLibrary/{rumId} {
