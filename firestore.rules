@@ -45,7 +45,8 @@ service cloud.firestore {
 
     // Admins egne ord til duft/smag/aromaer – alle må læse (medlemmernes aromaliste), kun admin skriver.
     match /settings/{docId} {
-      allow read: if signedIn();
+      // settings/ai rummer admins API-nøgle og må kun læses af admin
+      allow read: if (signedIn() && docId != 'ai') || isAdmin();
       allow write: if isAdmin();
     }
 
@@ -71,6 +72,11 @@ service cloud.firestore {
       allow read: if signedIn();
       allow create, delete: if isAdmin();
       allow update: if isAdmin() || (signedIn() && onlyJoinOrLeave());
+
+      // Værtens plan (rækkefølge og historier) – kun admin
+      match /private/{docId} {
+        allow read, write: if isAdmin();
+      }
 
       match /rums/{r} {
         allow read: if signedIn();
