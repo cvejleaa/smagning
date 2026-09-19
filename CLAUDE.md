@@ -166,6 +166,8 @@ Kendte måder, ubevist kode slipper igennem med grøn suite:
 
 ## Test-kommandoer
 
-[TILPAS: skriv projektets faktiske lint-, test- og build-kommandoer her, så
-de kun vedligeholdes ét sted. Nævn også, hvis test-runneren har eksplicitte
-include-lister, som nye testfiler skal tilføjes til.]
+- Emulatorer: `npm run emulators` (Auth 9099, Firestore 8080, Hosting 5000).
+- End-to-end + regler: `npm run test:e2e` (kræver kørende emulatorer og
+  Chromium; `CHROME_PATH` kan pege på en eksisterende Chrome).
+- Deploy: `npm run deploy` (hosting + regler), `npm run deploy:rules`.
+- Der er endnu ingen lint, ingen CI og ingen unit-tests – se README, "Kendt gæld".
