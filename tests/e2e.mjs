@@ -242,6 +242,7 @@ check('Gæt: land, alkohol og navn vises hver for sig og markeres rigtige (43 vs
 check('Afsløring: billede vises', (await member.locator('.reveal img.rumimg').getAttribute('src') || '').startsWith('data:image/jpeg'));
 // Vægtet: 0,05·5 + 0,2·7 + 0,5·5 + 0,25·5 = 5,4. Uvægtet snit = 5,5 og egen samlet = 8,0 må IKKE stå som fælles score.
 check('Samlet vurdering vises efter frigivelse – vægtet 5,4', after.includes('5,4') && !after.includes('5,5 / 10') && !after.includes('8,0 / 10') && after.includes('Bo Medlem'));
+check('Layout: siden ruller ikke sidelæns på telefon (420 px) med deltagertabellen', await member.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth));
 await member.screenshot({ path: 'tests/screenshots/shot-member-reveal.png', fullPage: true });
 
 r = await fsGet(`tastings/${tId}/rums/${r1}/private/info`, B.token);

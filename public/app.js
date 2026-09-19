@@ -281,8 +281,8 @@ function viewProfile() {
     <div class="card">
       <h2 style="margin-top:0">Brugere</h2>
       <p class="small muted">Ny adgangskode til en bruger sættes fra GitHub: <a href="https://github.com/cvejleaa/smagning/actions/workflows/set-password.yml" target="_blank" rel="noopener">Actions → "Sæt adgangskode for bruger"</a> → "Run workflow" → skriv e-mail og ny adgangskode. Brugeren logges ud på alle enheder og kan logge ind med den nye kode et minut senere. Roller ændres i Firestore-konsollen.</p>
-      <table><thead><tr><th>Bruger</th><th>E-mail</th><th>Rolle</th></tr></thead>
-      <tbody>${Object.entries(users).sort((a, b) => (a[1].name || "").localeCompare(b[1].name || "", "da")).map(([uid, u]) => `<tr><td><span class="row" style="display:inline-flex;gap:6px">${avatarHtml(uid, "small")}${esc(u.name)}</span></td><td>${esc(u.email)}</td><td>${u.role === "admin" ? "administrator" : "medlem"}</td></tr>`).join("")}</tbody></table>
+      <div class="table-wrap"><table><thead><tr><th>Bruger</th><th>E-mail</th><th>Rolle</th></tr></thead>
+      <tbody>${Object.entries(users).sort((a, b) => (a[1].name || "").localeCompare(b[1].name || "", "da")).map(([uid, u]) => `<tr><td><span class="row" style="display:inline-flex;gap:6px">${avatarHtml(uid, "small")}${esc(u.name)}</span></td><td>${esc(u.email)}</td><td>${u.role === "admin" ? "administrator" : "medlem"}</td></tr>`).join("")}</tbody></table></div>
     </div>
     <div class="card">
       <h2 style="margin-top:0">AI-hjælp (Anthropic)</h2>
@@ -463,8 +463,8 @@ function viewTasting(tId) {
       ${ranked.length ? `
         <h2>Rangliste</h2>
         <div class="card">
-          <table><thead><tr><th>#</th><th>Rom</th><th class="num">Vægtet score</th><th class="num">Smagernes egen samlet</th></tr></thead>
-          <tbody>${ranked.map((x, i) => `<tr><td>${i + 1}</td><td>${x.label}</td><td class="num"><strong>${fmt1(x.avg)}</strong></td><td class="num">${fmt1(x.avgOwn)}</td></tr>`).join("")}</tbody></table>
+          <div class="table-wrap"><table><thead><tr><th>#</th><th>Rom</th><th class="num">Vægtet score</th><th class="num">Smagernes egen samlet</th></tr></thead>
+          <tbody>${ranked.map((x, i) => `<tr><td>${i + 1}</td><td>${x.label}</td><td class="num"><strong>${fmt1(x.avg)}</strong></td><td class="num">${fmt1(x.avgOwn)}</td></tr>`).join("")}</tbody></table></div>
           <p class="muted small">Rangeret efter vægtet score. ${WEIGHTS_TEXT} "Smagernes egen samlet" er gennemsnittet af deltagernes egen samlede vurdering.</p>
           ${rows.some((x) => !x.complete) ? `<p class="muted small">Romme, hvor ikke alle har bedømt endnu, vises først når alle er færdige – eller når værten frigiver rommen.</p>` : ""}
         </div>` : ""}`;
@@ -546,10 +546,10 @@ function viewRum(tId, rId) {
       $f.innerHTML = `
         <div class="card">
           <h2 style="margin-top:0">Din bedømmelse</h2>
-          <table><tbody>
+          <div class="table-wrap"><table><tbody>
             ${DIMS.map((d) => `<tr><td>${d.label}${d.key === "samlet" ? ' <span class="muted small">(din egen rettesnor)</span>' : ""}</td><td class="num"><strong>${esc(m.scores?.[d.key])}</strong></td></tr>`).join("")}
             <tr><td><strong>Din vægtede score</strong> <span class="muted small">(tæller i den fælles)</span></td><td class="num"><strong>${fmt1(weighted(m.scores))}</strong></td></tr>
-          </tbody></table>
+          </tbody></table></div>
           ${(m.tags || []).length ? `<p class="small">Aromaer: ${m.tags.map(esc).join(", ")}</p>` : ""}
           ${guessParts(m.guess).length ? `<p class="small">Dit gæt: ${guessHtml(m.guess, priv)}</p>` : ""}
           ${m.comment ? `<p class="small">${esc(m.comment).replace(/\n/g, "<br>")}</p>` : ""}
@@ -646,8 +646,8 @@ function viewRum(tId, rId) {
       <div class="reveal">
         <h2 style="margin-top:0">Afsløring: ${esc(priv.name || rum.publicName)}</h2>
         ${priv.imageData ? `<p><img class="rumimg" src="${priv.imageData}" alt="${esc(priv.name)}"></p>` : ""}
-        ${facts.length ? `<table><tbody>${facts.map(([k, v]) => `<tr><th>${k}</th><td>${esc(v)}</td></tr>`).join("")}</tbody></table>` : ""}
-        ${profileHtml(priv.profile) ? `<h3>Administratorens smagsprofil</h3><table><tbody>${profileHtml(priv.profile)}</tbody></table>` : ""}
+        ${facts.length ? `<div class="table-wrap"><table><tbody>${facts.map(([k, v]) => `<tr><th>${k}</th><td>${esc(v)}</td></tr>`).join("")}</tbody></table></div>` : ""}
+        ${profileHtml(priv.profile) ? `<h3>Administratorens smagsprofil</h3><div class="table-wrap"><table><tbody>${profileHtml(priv.profile)}</tbody></table></div>` : ""}
         ${priv.adminNotes ? `<h3>Administratorens noter</h3><pre class="info">${esc(priv.adminNotes)}</pre>` : (profileHtml(priv.profile) ? "" : `<p class="muted small">Administratoren har ikke skrevet noter til denne rom.</p>`)}
         ${priv.webInfo ? `<details><summary>Fra nettet</summary><pre class="info">${esc(priv.webInfo)}</pre></details>` : ""}
       </div>`;
@@ -685,15 +685,21 @@ function viewRum(tId, rId) {
       <div class="card">
         <h2 style="margin-top:0">Samlet vurdering</h2>
         <p class="big">${fmt1(total)} <span class="small muted" style="font-weight:400">/ 10 vægtet (${n} bedømmelser, laveste ${fmt1(Math.min(...perPerson))}, højeste ${fmt1(Math.max(...perPerson))})</span></p>
-        <table><tbody>${DIMS.filter((d) => d.key !== "samlet").map((d) => `<tr><td>${d.label} <span class="muted small">${Math.round(WEIGHTS[d.key] * 100)} %</span></td><td class="num"><strong>${fmt1(avg[d.key])}</strong></td></tr>`).join("")}</tbody></table>
+        <div class="table-wrap"><table><tbody>${DIMS.filter((d) => d.key !== "samlet").map((d) => `<tr><td>${d.label} <span class="muted small">${Math.round(WEIGHTS[d.key] * 100)} %</span></td><td class="num"><strong>${fmt1(avg[d.key])}</strong></td></tr>`).join("")}</tbody></table></div>
         <p class="muted small">${WEIGHTS_TEXT}</p>
         ${topTags.length ? `<p class="small">Mest fundne aromaer: ${topTags.map(([t, c]) => `${esc(t)} (${c})`).join(", ")}</p>` : ""}
         <h3>Deltagernes bedømmelser</h3>
-        <table><thead><tr><th>Deltager</th>${DIMS.filter((d) => d.key !== "samlet").map((d) => `<th class="num">${d.label.split(" ")[0]}</th>`).join("")}<th class="num">Vægtet</th><th class="num muted">Egen</th>${isAdmin() ? "<th></th>" : ""}</tr></thead>
-        <tbody>${sorted.map((r) => `<tr><td><span class="row" style="display:inline-flex;gap:6px">${avatarHtml(r.uid, "small")}${esc(nameOf(r.uid))}</span>${guessParts(r.guess).length ? `<br><span class="muted small">Gæt – ${guessHtml(r.guess, priv)}</span>` : ""}${r.comment ? `<br><span class="small">${esc(r.comment)}</span>` : ""}</td>
-          ${DIMS.filter((d) => d.key !== "samlet").map((d) => `<td class="num">${esc(r.scores?.[d.key])}</td>`).join("")}
-          <td class="num"><strong>${fmt1(weighted(r.scores))}</strong></td><td class="num muted">${esc(r.scores?.samlet)}</td>
-          ${isAdmin() ? `<td><button class="small danger" data-del="${r.id}" title="Slet bedømmelsen, så deltageren kan bedømme igen">Slet</button></td>` : ""}</tr>`).join("")}</tbody></table>
+        ${sorted.map((r) => `
+          <div class="rating-row">
+            <div class="row between">
+              <span class="row" style="gap:6px">${avatarHtml(r.uid, "small")}<strong>${esc(nameOf(r.uid))}</strong></span>
+              <span class="row" style="gap:8px"><strong>${fmt1(weighted(r.scores))}</strong><span class="muted small">egen ${esc(r.scores?.samlet)}</span>${isAdmin() ? `<button class="small danger" data-del="${r.id}" title="Slet bedømmelsen, så deltageren kan bedømme igen">Slet</button>` : ""}</span>
+            </div>
+            <div class="small muted">${DIMS.filter((d) => d.key !== "samlet").map((d) => `${d.label.split(" ")[0]} ${esc(r.scores?.[d.key])}`).join(" · ")}</div>
+            ${(r.tags || []).length ? `<div class="small muted">Aromaer: ${r.tags.map(esc).join(", ")}</div>` : ""}
+            ${guessParts(r.guess).length ? `<div class="small muted">Gæt – ${guessHtml(r.guess, priv)}</div>` : ""}
+            ${r.comment ? `<div class="small">${esc(r.comment).replace(/\n/g, "<br>")}</div>` : ""}
+          </div>`).join("")}
       </div>`;
     $a.querySelectorAll("[data-del]").forEach((b) => (b.onclick = async () => {
       if (!confirm("Slet denne bedømmelse? Deltageren kan så bedømme igen.")) return;
@@ -1123,7 +1129,7 @@ function viewLibraryRum(id) {
     $h.innerHTML = `
       ${all.length ? `<div class="card"><strong>På tværs af ${blocks.length} smagning${blocks.length === 1 ? "" : "er"}</strong>
         <p class="big">${fmt1(avgWeighted(all))} <span class="small muted" style="font-weight:400">/ 10 vægtet (${all.length} bedømmelser)</span></p>
-        <table><tbody>${DIMS.filter((d) => d.key !== "samlet").map((d) => `<tr><td>${d.label}</td><td class="num"><strong>${fmt1(avgOf(all, d.key))}</strong></td></tr>`).join("")}</tbody></table>
+        <div class="table-wrap"><table><tbody>${DIMS.filter((d) => d.key !== "samlet").map((d) => `<tr><td>${d.label}</td><td class="num"><strong>${fmt1(avgOf(all, d.key))}</strong></td></tr>`).join("")}</tbody></table></div>
         ${tagsOf(all).length ? `<p class="small">Mest fundne aromaer: ${tagsOf(all).map(([t, c]) => `${esc(t)} (${c})`).join(", ")}</p>` : ""}</div>` : ""}
       ${blocks.map(({ t, rum, ratings }) => `
         <div class="card">
@@ -1131,7 +1137,12 @@ function viewLibraryRum(id) {
           ${ratings.length ? `
             <p><strong>${fmt1(avgWeighted(ratings))}</strong> / 10 vægtet · ${ratings.length} bedømmelser · ${DIMS.filter((d) => d.key !== "samlet").map((d) => `${d.label.split(" ")[0]} ${fmt1(avgOf(ratings, d.key))}`).join(" · ")}</p>
             ${tagsOf(ratings).length ? `<p class="small">Aromaer: ${tagsOf(ratings).map(([tg, c]) => `${esc(tg)} (${c})`).join(", ")}</p>` : ""}
-            <table><tbody>${ratings.map((r) => `<tr><td><span class="row" style="display:inline-flex;gap:6px">${avatarHtml(r.uid, "small")}${esc(nameOf(r.uid))}</span>${guessParts(r.guess).length ? ` <span class="muted small">(gæt – ${guessHtml(r.guess, info)})</span>` : ""}${r.comment ? `<br><span class="small">${esc(r.comment)}</span>` : ""}</td><td class="num"><strong>${fmt1(weighted(r.scores))}</strong> <span class="muted small">(egen: ${esc(r.scores?.samlet)})</span></td></tr>`).join("")}</tbody></table>`
+            ${ratings.map((r) => `<div class="rating-row">
+              <div class="row between"><span class="row" style="gap:6px">${avatarHtml(r.uid, "small")}<strong>${esc(nameOf(r.uid))}</strong></span><span><strong>${fmt1(weighted(r.scores))}</strong> <span class="muted small">egen ${esc(r.scores?.samlet)}</span></span></div>
+              <div class="small muted">${DIMS.filter((d) => d.key !== "samlet").map((d) => `${d.label.split(" ")[0]} ${esc(r.scores?.[d.key])}`).join(" · ")}</div>
+              ${guessParts(r.guess).length ? `<div class="small muted">Gæt – ${guessHtml(r.guess, info)}</div>` : ""}
+              ${r.comment ? `<div class="small">${esc(r.comment).replace(/\n/g, "<br>")}</div>` : ""}
+            </div>`).join("")}`
           : `<p class="muted small">Ingen bedømmelser.</p>`}
         </div>`).join("")}`;
   }
