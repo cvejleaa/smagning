@@ -233,7 +233,8 @@ check('Regler: rom 2 afsløres, når alle har bedømt', r.ok, String(r.status));
 // --- 5. Rangliste på smagningssiden ---
 await member.goto(BASE + `/#/smagning/${tId}`); await sleep(1500);
 const tText = await member.locator('#t').textContent();
-check('Rangliste viser rom 1 (frigivet) med rigtigt navn og vægtet score', tText.includes('Rangliste') && tText.includes('Appleton Estate 12') && tText.includes('5,4') && !tText.includes('8,0'));
+// Rom 1: vægtet 5,4 og smagernes egen samlet 8,0 (Bo gav 8) – begge kolonner, ingen "Bedømt"-kolonne
+check('Rangliste viser rom 1 med vægtet score 5,4 og smagernes egen samlet 8,0', tText.includes('Rangliste') && tText.includes('Appleton Estate 12') && tText.includes('5,4') && tText.includes('8,0') && tText.includes('Smagernes egen samlet') && !tText.includes('Bedømt'));
 check('Rangliste viser rom 2 (alle har bedømt) med vægtet 6,0', tText.includes('6,0'));
 await member.screenshot({ path: 'tests/screenshots/shot-member-tasting.png', fullPage: true });
 

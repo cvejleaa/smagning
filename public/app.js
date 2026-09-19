@@ -373,9 +373,10 @@ function viewTasting(tId) {
       const rs = ratings.filter((x) => x.rumId === r.id);
       const complete = tasting.status === "afsluttet" || r.status === "lukket" || (parts.length > 0 && parts.every((u) => (r.ratedBy || []).includes(u)));
       const avg = avgWeighted(rs);
+      const avgOwn = rs.length ? rs.reduce((s, x) => s + (Number(x.scores?.samlet) || 0), 0) / rs.length : 0;
       const mine = rs.find((x) => x.uid === user.uid);
       const label = privateNames[r.id] ? `${esc(privateNames[r.id])} <span class="muted small">(${esc(r.publicName)})</span>` : esc(r.publicName);
-      return { r, rs, complete, avg, mine, label };
+      return { r, rs, complete, avg, avgOwn, mine, label };
     });
     const ranked = rows.filter((x) => x.complete && x.rs.length).sort((a, b) => b.avg - a.avg);
 
@@ -411,9 +412,9 @@ function viewTasting(tId) {
       ${ranked.length ? `
         <h2>Rangliste</h2>
         <div class="card">
-          <table><thead><tr><th>#</th><th>Rom</th><th class="num">Vægtet score</th><th class="num">Bedømt</th></tr></thead>
-          <tbody>${ranked.map((x, i) => `<tr><td>${i + 1}</td><td>${x.label}</td><td class="num"><strong>${fmt1(x.avg)}</strong></td><td class="num">${x.rs.length}</td></tr>`).join("")}</tbody></table>
-          <p class="muted small">${WEIGHTS_TEXT}</p>
+          <table><thead><tr><th>#</th><th>Rom</th><th class="num">Vægtet score</th><th class="num">Smagernes egen samlet</th></tr></thead>
+          <tbody>${ranked.map((x, i) => `<tr><td>${i + 1}</td><td>${x.label}</td><td class="num"><strong>${fmt1(x.avg)}</strong></td><td class="num">${fmt1(x.avgOwn)}</td></tr>`).join("")}</tbody></table>
+          <p class="muted small">Rangeret efter vægtet score. ${WEIGHTS_TEXT} "Smagernes egen samlet" er gennemsnittet af deltagernes egen samlede vurdering.</p>
           ${rows.some((x) => !x.complete) ? `<p class="muted small">Romme, hvor ikke alle har bedømt endnu, vises først når alle er færdige – eller når værten frigiver rommen.</p>` : ""}
         </div>` : ""}`;
 
