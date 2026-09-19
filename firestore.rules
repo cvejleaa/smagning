@@ -1,0 +1,83 @@
+rules_version = '2';
+
+// Adgangsmodel:
+//  - Alle indloggede kan læse brugere, smagninger, romme og bedømmelser.
+//  - Kun admin (users/{uid}.role == 'admin') kan oprette/rette smagninger og romme.
+//  - Et medlem kan kun tilmelde/afmelde sig selv på en smagning.
+//  - Et medlem kan kun oprette sin egen bedømmelse, og kun mens rommen er åben.
+//    En bedømmelse kan ikke ændres bagefter (admin kan slette den).
+//  - Rommens "private" dokument (navn, admin-noter, web-info) kan først læses,
+//    når medlemmet selv har bedømt rommen — eller smagningen er afsluttet.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return signedIn()
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function tastingData(t) {
+      return get(/databases/$(database)/documents/tastings/$(t)).data;
+    }
+
+    function isParticipant(t) {
+      return signedIn() && request.auth.uid in tastingData(t).participantIds;
+    }
+
+    function hasRated(t, r) {
+      return exists(/databases/$(database)/documents/tastings/$(t)/ratings/$(r + '_' + request.auth.uid));
+    }
+
+    match /users/{uid} {
+      allow read: if signedIn();
+      // Nye brugere er altid medlemmer; admin sættes i konsollen.
+      allow create: if signedIn() && request.auth.uid == uid
+        && request.resource.data.role == 'medlem';
+      allow update: if isAdmin()
+        || (signedIn() && request.auth.uid == uid
+            && request.resource.data.role == resource.data.role);
+      allow delete: if isAdmin();
+    }
+
+    match /tastings/{t} {
+      function onlyJoinOrLeave() {
+        let before = resource.data.participantIds.toSet();
+        let after = request.resource.data.participantIds.toSet();
+        let me = [request.auth.uid].toSet();
+        return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['participantIds'])
+          && resource.data.status != 'afsluttet'
+          && (after == before.union(me) || after == before.difference(me));
+      }
+
+      allow read: if signedIn();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || (signedIn() && onlyJoinOrLeave());
+
+      match /rums/{r} {
+        allow read: if signedIn();
+        allow write: if isAdmin();
+
+        match /private/{docId} {
+          allow read: if isAdmin()
+            || (signedIn() && (hasRated(t, r) || tastingData(t).status == 'afsluttet'));
+          allow write: if isAdmin();
+        }
+      }
+
+      match /ratings/{ratingId} {
+        allow read: if signedIn();
+        allow create: if signedIn()
+          && isParticipant(t)
+          && ratingId == request.resource.data.rumId + '_' + request.auth.uid
+          && request.resource.data.uid == request.auth.uid
+          && get(/databases/$(database)/documents/tastings/$(t)/rums/$(request.resource.data.rumId)).data.status == 'aaben';
+        allow update: if false;
+        allow delete: if isAdmin();
+      }
+    }
+  }
+}

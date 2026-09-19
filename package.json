@@ -1,0 +1,17 @@
+{
+  "name": "smagning",
+  "private": true,
+  "description": "Smagsbedømmelser (romsmagning) med medlemmer, tilmelding, blindbedømmelse og samlet vurdering. Firebase Hosting + Firestore + Auth.",
+  "type": "module",
+  "scripts": {
+    "emulators": "firebase emulators:start --only auth,firestore,hosting",
+    "test:e2e": "node tests/e2e.mjs",
+    "deploy": "firebase deploy",
+    "deploy:rules": "firebase deploy --only firestore:rules"
+  },
+  "devDependencies": {
+    "firebase": "10.12.0",
+    "firebase-tools": "^13.35.1",
+    "playwright-core": "^1.55.0"
+  }
+}
