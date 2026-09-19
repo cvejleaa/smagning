@@ -33,6 +33,28 @@ const DIMS = [
 const WEIGHTS = { udseende: 0.05, naese: 0.20, smag: 0.50, eftersmag: 0.25 };
 const WEIGHTS_TEXT = "Vægtning: farve 5 %, duft 20 %, smag 50 %, eftersmag 25 %. Smagerens egen samlede vurdering indgår ikke.";
 const weighted = (scores) => Object.entries(WEIGHTS).reduce((sum, [k, w]) => sum + w * (Number(scores?.[k]) || 0), 0);
+// Gæt ved blindsmagning: {country, abv, name}. Ældre bedømmelser kan have en ren tekst.
+const guessParts = (g) => {
+  if (!g) return [];
+  if (typeof g === "string") return [["Gæt", g]];
+  return [["Land", g.country], ["Alkohol", g.abv ? g.abv + " %" : ""], ["Navn", g.name]].filter(([, v]) => v);
+};
+const guessText = (g) => guessParts(g).map(([k, v]) => `${k}: ${v}`).join(" · ");
+// Markerer rigtige gæt, når rommens rigtige oplysninger er kendt (efter afsløring)
+const guessHtml = (g, priv) => {
+  const parts = guessParts(g);
+  if (!parts.length) return "";
+  const norm = (x) => String(x || "").trim().toLowerCase();
+  const num = (x) => parseFloat(String(x || "").replace(",", "."));
+  const hit = (k, v) => {
+    if (!priv || typeof g === "string") return "";
+    if (k === "Land") return norm(v) && norm(v) === norm(priv.country) ? " ✓" : "";
+    if (k === "Alkohol") return !isNaN(num(g.abv)) && !isNaN(num(priv.abv)) && Math.abs(num(g.abv) - num(priv.abv)) <= 2 ? " ✓" : "";
+    if (k === "Navn") return norm(v) && norm(priv.name).includes(norm(v)) ? " ✓" : "";
+    return "";
+  };
+  return parts.map(([k, v]) => `${k}: ${esc(v)}${hit(k, v)}`).join(" · ");
+};
 const avgWeighted = (ratings) => ratings.length ? ratings.reduce((sum, r) => sum + weighted(r.scores), 0) / ratings.length : 0;
 // Administratorens smagsprofil for en rom: faste, gængse markeringer, så intet skal skrives ind hver gang.
 const PROFILE_GROUPS = [
@@ -432,7 +454,7 @@ function viewRum(tId, rId) {
     try {
       const p = await getDoc(doc(db, "tastings", tId, "rums", rId, "private", "info"));
       priv = p.exists() ? p.data() : {};
-      drawReveal();
+      drawReveal(); drawForm(); drawAgg(); // gæt-markeringer og afsløring afhænger af priv
     } catch (e) {
       // Typisk: egen bedømmelse er endnu ikke bekræftet af serveren – prøv igen om lidt
       privTried = false;
@@ -471,7 +493,7 @@ function viewRum(tId, rId) {
             <tr><td><strong>Din vægtede score</strong> <span class="muted small">(tæller i den fælles)</span></td><td class="num"><strong>${fmt1(weighted(m.scores))}</strong></td></tr>
           </tbody></table>
           ${(m.tags || []).length ? `<p class="small">Aromaer: ${m.tags.map(esc).join(", ")}</p>` : ""}
-          ${m.guess ? `<p class="small">Dit gæt: ${esc(m.guess)}</p>` : ""}
+          ${guessParts(m.guess).length ? `<p class="small">Dit gæt: ${guessHtml(m.guess, priv)}</p>` : ""}
           ${m.comment ? `<p class="small">${esc(m.comment).replace(/\n/g, "<br>")}</p>` : ""}
         </div>`;
       return;
@@ -497,7 +519,13 @@ function viewRum(tId, rId) {
           </label>`).join("")}
         <label>Aromaer og smagsnoter <span class="hint">(vælg dem, du finder)</span></label>
         <div class="tags">${optionsFor("aromaer").map((t) => `<label><input type="checkbox" name="tags" value="${esc(t)}">${esc(t)}</label>`).join("")}</div>
-        ${tasting.blind ? `<label>Dit gæt <span class="hint">(fx land, alder, type – valgfrit)</span><input type="text" name="guess" placeholder="Fx Jamaica, 12 år, pot still"></label>` : ""}
+        ${tasting.blind ? `
+        <label>Dit gæt <span class="hint">(valgfrit – afsløres sammen med rommen)</span></label>
+        <div class="grid3">
+          <label class="sub">Land<input type="text" name="guessCountry" placeholder="Fx Jamaica"></label>
+          <label class="sub">Alkohol %<input type="text" name="guessAbv" inputmode="decimal" placeholder="Fx 43"></label>
+          <label class="sub">Navn / destilleri<input type="text" name="guessName" placeholder="Fx Appleton"></label>
+        </div>` : ""}
         <label>Kommentar <span class="hint">(valgfri)</span><textarea name="comment"></textarea></label>
         <p><button type="submit">Gem bedømmelse</button></p>
       </form>`;
@@ -518,7 +546,8 @@ function viewRum(tId, rId) {
       try {
         await setDoc(doc(db, "tastings", tId, "ratings", `${rId}_${user.uid}`), {
           uid: user.uid, rumId: rId, scores, tags,
-          guess: f.guess ? f.guess.value.trim() : "", comment: f.comment.value.trim(),
+          guess: f.guessCountry ? { country: f.guessCountry.value.trim(), abv: f.guessAbv.value.trim(), name: f.guessName.value.trim() } : null,
+          comment: f.comment.value.trim(),
           createdAt: serverTimestamp(),
         });
         toast("Din bedømmelse er gemt");
@@ -578,7 +607,7 @@ function viewRum(tId, rId) {
         ${topTags.length ? `<p class="small">Mest fundne aromaer: ${topTags.map(([t, c]) => `${esc(t)} (${c})`).join(", ")}</p>` : ""}
         <h3>Deltagernes bedømmelser</h3>
         <table><thead><tr><th>Deltager</th>${DIMS.filter((d) => d.key !== "samlet").map((d) => `<th class="num">${d.label.split(" ")[0]}</th>`).join("")}<th class="num">Vægtet</th><th class="num muted">Egen</th>${isAdmin() ? "<th></th>" : ""}</tr></thead>
-        <tbody>${sorted.map((r) => `<tr><td>${esc(nameOf(r.uid))}${r.guess ? `<br><span class="muted small">Gæt: ${esc(r.guess)}</span>` : ""}${r.comment ? `<br><span class="small">${esc(r.comment)}</span>` : ""}</td>
+        <tbody>${sorted.map((r) => `<tr><td>${esc(nameOf(r.uid))}${guessParts(r.guess).length ? `<br><span class="muted small">Gæt – ${guessHtml(r.guess, priv)}</span>` : ""}${r.comment ? `<br><span class="small">${esc(r.comment)}</span>` : ""}</td>
           ${DIMS.filter((d) => d.key !== "samlet").map((d) => `<td class="num">${esc(r.scores?.[d.key])}</td>`).join("")}
           <td class="num"><strong>${fmt1(weighted(r.scores))}</strong></td><td class="num muted">${esc(r.scores?.samlet)}</td>
           ${isAdmin() ? `<td><button class="small danger" data-del="${r.id}" title="Slet bedømmelsen, så deltageren kan bedømme igen">Slet</button></td>` : ""}</tr>`).join("")}</tbody></table>
@@ -982,11 +1011,11 @@ function viewLibraryRum(id) {
       if (!confirm("Slet rommen fra biblioteket? Smagninger, den har været med i, beholder deres kopi.")) return;
       try { await deleteDoc(doc(db, "rumLibrary", id, "media", "image")); await deleteDoc(doc(db, "rumLibrary", id)); go("#/bibliotek"); } catch (e) { showError(e); }
     };
-    drawHistory(id);
+    drawHistory(id, info);
   })().catch(showError);
 
   // Finder rommen i alle smagninger og samler bedømmelserne pr. smagning
-  async function drawHistory(libraryId) {
+  async function drawHistory(libraryId, info) {
     const ts = await getDocs(query(collection(db, "tastings"), orderBy("date", "desc")));
     const blocks = [];
     let all = [];
@@ -1015,7 +1044,7 @@ function viewLibraryRum(id) {
           ${ratings.length ? `
             <p><strong>${fmt1(avgWeighted(ratings))}</strong> / 10 vægtet · ${ratings.length} bedømmelser · ${DIMS.filter((d) => d.key !== "samlet").map((d) => `${d.label.split(" ")[0]} ${fmt1(avgOf(ratings, d.key))}`).join(" · ")}</p>
             ${tagsOf(ratings).length ? `<p class="small">Aromaer: ${tagsOf(ratings).map(([tg, c]) => `${esc(tg)} (${c})`).join(", ")}</p>` : ""}
-            <table><tbody>${ratings.map((r) => `<tr><td>${esc(nameOf(r.uid))}${r.guess ? ` <span class="muted small">(gæt: ${esc(r.guess)})</span>` : ""}${r.comment ? `<br><span class="small">${esc(r.comment)}</span>` : ""}</td><td class="num"><strong>${fmt1(weighted(r.scores))}</strong> <span class="muted small">(egen: ${esc(r.scores?.samlet)})</span></td></tr>`).join("")}</tbody></table>`
+            <table><tbody>${ratings.map((r) => `<tr><td>${esc(nameOf(r.uid))}${guessParts(r.guess).length ? ` <span class="muted small">(gæt – ${guessHtml(r.guess, info)})</span>` : ""}${r.comment ? `<br><span class="small">${esc(r.comment)}</span>` : ""}</td><td class="num"><strong>${fmt1(weighted(r.scores))}</strong> <span class="muted small">(egen: ${esc(r.scores?.samlet)})</span></td></tr>`).join("")}</tbody></table>`
           : `<p class="muted small">Ingen bedømmelser.</p>`}
         </div>`).join("")}`;
   }
