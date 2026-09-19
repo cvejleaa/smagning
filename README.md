@@ -3,9 +3,14 @@
 Webapp til smagsbedømmelser i en gruppe – i første omgang romsmagninger.
 Medlemmer opretter sig selv, tilmelder sig en smagning, bedømmer hver rom
 (udseende, næse, smag, eftersmag, samlet score 1–10, aromaer, gæt og
-kommentar) og får derefter afsløret rommens identitet og administratorens
-noter. Når alle deltagere har bedømt en rom, vises den samlede vurdering og
-en rangliste.
+kommentar) og får derefter afsløret rommens identitet, billede og
+administratorens noter. Når alle deltagere har bedømt en rom, vises den
+samlede vurdering og en rangliste.
+
+Administrator har et **rombibliotek**: alle romme gemmes dér med oplysninger,
+billede og noter, kan hentes ind i nye smagninger, og viser resultater fra
+alle tidligere smagninger (gennemsnit pr. dimension, aromaer, deltagernes
+scorer og kommentarer).
 
 Live: <https://smagning.vejleaa.dk> (og <https://smagning-286ed.web.app>).
 
@@ -24,8 +29,10 @@ Live: <https://smagning.vejleaa.dk> (og <https://smagning-286ed.web.app>).
 |---|---|
 | `users/{uid}` | navn, e-mail, `role` (`medlem` eller `admin`) |
 | `tastings/{id}` | titel, dato, tid, beskrivelse, `status` (`tilmelding` / `igang` / `afsluttet`), `blind`, `participantIds[]` |
-| `tastings/{id}/rums/{rumId}` | `order`, `status` (`aaben` / `lukket`), `publicName` ("Rom nr. 1" ved blindsmagning) |
-| `tastings/{id}/rums/{rumId}/private/info` | navn, destilleri, land, alder, ABV, type, fad, pris, `adminNotes`, `webInfo` – kan først læses efter egen bedømmelse |
+| `rumLibrary/{id}` | master-data for en rom (navn, destilleri, land, alder, ABV, type, fad, pris, `adminNotes`, `webInfo`) – kun admin |
+| `rumLibrary/{id}/media/image` | `data`: billedet som JPEG data-URL (max 800 px, skaleret i browseren) – kun admin |
+| `tastings/{id}/rums/{rumId}` | `order`, `status` (`aaben` / `lukket`), `publicName` ("Rom nr. 1" ved blindsmagning), `libraryId` |
+| `tastings/{id}/rums/{rumId}/private/info` | kopi af bibliotekets felter plus `imageData` på tidspunktet for smagningen – kan først læses efter egen bedømmelse |
 | `tastings/{id}/ratings/{rumId}_{uid}` | `scores` pr. dimension, `tags`, `guess`, `comment` – kan ikke ændres efter oprettelse |
 
 ## Drift
@@ -37,18 +44,30 @@ Live: <https://smagning.vejleaa.dk> (og <https://smagning-286ed.web.app>).
    `admin`. Alle andre er automatisk `medlem`. Der er bevidst ingen knap til
    det i appen.
 
-### Deploy
+### Deploy (automatisk fra GitHub)
 
-```
-npm install
-npx firebase login
-npm run deploy            # hosting + Firestore-regler
-npm run deploy:rules      # kun reglerne
-```
+Hvert push til `main` deployer hosting og Firestore-regler via
+`.github/workflows/deploy.yml`. Det kræver én engangsopsætning: en
+servicekonto-nøgle som GitHub-secret.
 
-Deploy af reglerne er en del af `npm run deploy`. Tjek bagefter i konsollen
-under Firestore → Regler, at den nye version er aktiv – uden dem er
-afsløringen kun skjult i klienten.
+1. Google Cloud Console → IAM og administration → Servicekonti (projekt
+   `smagning-286ed`) → "Opret servicekonto". Navn fx `github-deploy`. Giv
+   rollen **Firebase Admin**. Færdiggør.
+2. Åbn kontoen → fanen "Nøgler" → "Tilføj nøgle" → "Opret ny nøgle" → JSON.
+   En fil downloades.
+3. GitHub → repoet → Settings → Secrets and variables → Actions → "New
+   repository secret". Navn: `FIREBASE_SERVICE_ACCOUNT`. Værdi: hele
+   indholdet af JSON-filen. Slet filen bagefter.
+4. GitHub → Actions → "Deploy til Firebase" → "Run workflow" (eller vent på
+   næste push til `main`).
+
+Mangler nøglen, springer workflowet deployet over med en advarsel i loggen
+frem for at fejle. Tjek efter første deploy i Firebase-konsollen under
+Firestore → Regler, at den nye version er aktiv – uden dem er afsløringen
+kun skjult i klienten.
+
+Manuelt deploy fra en maskine med repoet er stadig muligt:
+`npm install && npx firebase login && npm run deploy`.
 
 ### Domænet smagning.vejleaa.dk
 
@@ -83,8 +102,9 @@ npm run test:e2e                  # i et andet vindue
 Appen bruger automatisk emulatorerne, når den åbnes fra `localhost` /
 `127.0.0.1` (se toppen af `public/app.js`). `tests/e2e.mjs` gennemgår hele
 forløbet med to brugere i browseren og efterprøver reglerne direkte via REST
-(25 tjek: rolle, oprettelse, tilmelding, skjult afsløring før bedømmelse,
-afsløring efter, låst bedømmelse, samlet vurdering, rangliste, afslutning).
+(33 tjek: rolle, bibliotek med billede, oprettelse, tilmelding, skjult
+afsløring før bedømmelse, afsløring med billede efter, låst bedømmelse,
+samlet vurdering, rangliste, afslutning, historik i biblioteket).
 
 ## Kendt gæld (bevidst udskudt for at nå første smagning)
 
@@ -94,6 +114,10 @@ afsløring efter, låst bedømmelse, samlet vurdering, rangliste, afslutning).
 - "Hent info fra nettet" henter kun Wikipedia-resuméer plus søgelinks.
   Rigere AI-resuméer kræver en Cloud Function (Blaze-plan).
 - Sletning af en smagning sletter dokumenterne ét ad gangen fra klienten.
+- Billeder gemmes som data-URL i Firestore (max ca. 700 KB pr. billede) i
+  stedet for Cloud Storage, som kræver Blaze-abonnement på nye projekter.
+- Bibliotekets historik hentes med én forespørgsel pr. smagning; ved mange
+  hundrede smagninger bør det denormaliseres.
 - Skabelonens `[TILPAS]`-markeringer i `.claude/agents/` er ikke udfyldt endnu.
 
 ## Skabelonens tilpasnings-tjekliste

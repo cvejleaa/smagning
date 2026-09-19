@@ -67,8 +67,32 @@ check('UI: medlem ser ingen "Ny smagning"-knap', (await member.locator('#new').c
 r = await fsPatch(`users/${A.uid}`, { role: { stringValue: 'admin' } }, 'owner', ['role']);
 check('Anna sat til admin via konsol-adgang', r.ok, String(r.status));
 
-// --- 2. Admin opretter smagning og rom ---
+// --- 1b. Admin opretter en rom i biblioteket med billede ---
 await admin.goto(BASE + '/#/'); await admin.reload(); await admin.waitForSelector('#new', { timeout: 10000 });
+await admin.goto(BASE + '/#/bibliotek'); await admin.waitForSelector('#newlib');
+await admin.click('#newlib'); await admin.waitForSelector('#libform');
+const lf = admin.locator('#libform');
+await lf.locator('[name=name]').fill('Appleton Estate 12');
+await lf.locator('[name=distillery]').fill('Appleton Estate');
+await lf.locator('[name=country]').fill('Jamaica');
+await lf.locator('[name=age]').fill('12 år');
+await lf.locator('[name=abv]').fill('43');
+await lf.locator('[name=adminNotes]').fill('HEMMELIG NOTE: klassisk jamaicansk, appelsinskal og eg.');
+const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+await lf.locator('.imgfile').setInputFiles({ name: 'flaske.png', mimeType: 'image/png', buffer: png });
+await admin.waitForFunction(() => document.querySelector('#libform [name=imageData]').value.startsWith('data:image/jpeg'), null, { timeout: 10000 });
+check('Bibliotek: billede skaleret og lagt i formularen', true);
+await lf.locator('button[type=submit]').click();
+await admin.waitForSelector('#list [data-id]', { timeout: 10000 });
+check('Bibliotek: rommen vises i listen', (await admin.locator('#list').textContent()).includes('Appleton Estate 12'));
+const libId = await admin.locator('#list [data-id]').first().getAttribute('data-id');
+const media = await fsGet(`rumLibrary/${libId}/media/image`, A.token).then((r) => r.json());
+check('Bibliotek: billede gemt som JPEG data-URL', (media.fields?.data?.stringValue || '').startsWith('data:image/jpeg'));
+r = await fsGet(`rumLibrary/${libId}`, B.token);
+check('Regler: medlem kan ikke læse biblioteket', r.status === 403, String(r.status));
+
+// --- 2. Admin opretter smagning og rom ---
+await admin.goto(BASE + '/#/'); await admin.waitForSelector('#new', { timeout: 10000 });
 await admin.click('#new');
 await admin.waitForSelector('#tform');
 check('Admin: ny smagning åbner redigering', admin.url().includes('#/admin/smagning/'));
@@ -77,19 +101,20 @@ await admin.fill('#tform [name=title]', 'Romaften i Vejle');
 await admin.selectOption('#tform [name=status]', 'igang');
 await admin.click('#tform button[type=submit]');
 await sleep(800);
-await admin.click('#addrum'); await admin.waitForSelector('.rumform');
-await admin.click('#addrum'); await sleep(800);
-check('Admin: to romme tilføjet', (await admin.locator('.rumform').count()) === 2);
+await admin.waitForSelector('#libpick');
+await admin.selectOption('#libpick', libId);
+await admin.click('#addlib'); await admin.waitForSelector('.rumform');
+await admin.click('#addrum'); await sleep(1000);
+check('Admin: to romme tilføjet (én fra biblioteket, én ny)', (await admin.locator('.rumform').count()) === 2);
 const f1 = admin.locator('.rumform').first();
-await f1.locator('[name=name]').fill('Appleton Estate 12');
-await f1.locator('[name=distillery]').fill('Appleton Estate');
-await f1.locator('[name=country]').fill('Jamaica');
-await f1.locator('[name=age]').fill('12 år');
-await f1.locator('[name=abv]').fill('43');
-await f1.locator('[name=adminNotes]').fill('HEMMELIG NOTE: klassisk jamaicansk, appelsinskal og eg.');
+check('Admin: rom fra biblioteket har navn, noter og billede', await f1.locator('[name=name]').inputValue() === 'Appleton Estate 12' && (await f1.locator('[name=adminNotes]').inputValue()).includes('HEMMELIG') && (await f1.locator('[name=imageData]').inputValue()).startsWith('data:image/jpeg'));
+await f1.locator('[name=cask]').fill('Ex-bourbon');
 await f1.locator('button[type=submit]').click();
-await sleep(800);
-check('Admin: rom gemt med navn', await admin.locator('.rumform').first().locator('[name=name]').inputValue() === 'Appleton Estate 12');
+await sleep(1000);
+const libAfter = await fsGet(`rumLibrary/${libId}`, A.token).then((r) => r.json());
+check('Admin: rettelse i smagningen skrives tilbage til biblioteket', libAfter.fields?.cask?.stringValue === 'Ex-bourbon');
+const libCount = await fsGet('rumLibrary', A.token).then((r) => r.json());
+check('Bibliotek: "Opret ny rom" oprettede også en bibliotekspost', (libCount.documents || []).length === 2, String((libCount.documents || []).length));
 const rums = await fsGet(`tastings/${tId}/rums`, A.token).then((r) => r.json());
 const rumIds = rums.documents.map((d) => d.name.split('/').pop());
 const rum1 = rums.documents.find((d) => d.fields.order.integerValue === '1');
@@ -124,6 +149,7 @@ await member.click('#rate button[type=submit]');
 await member.waitForSelector('.reveal', { timeout: 10000 });
 const after = await member.locator('#app').textContent();
 check('Afsløring: navn og hemmelig note vises efter bedømmelse', after.includes('Appleton Estate 12') && after.includes('HEMMELIG NOTE'));
+check('Afsløring: billede vises', (await member.locator('.reveal img.rumimg').getAttribute('src') || '').startsWith('data:image/jpeg'));
 check('Samlet vurdering vises når alle (1 af 1) har bedømt', after.includes('8,0') && after.includes('Bo Medlem'));
 await member.screenshot({ path: 'tests/screenshots/shot-member-reveal.png', fullPage: true });
 
@@ -154,6 +180,13 @@ r = await fsGet(`tastings/${tId}/rums/${r2}/private/info`, B.token);
 check('Regler: efter afslutning kan medlem læse rom 2', r.ok, String(r.status));
 r = await fsPatch(`tastings/${tId}`, { participantIds: { arrayValue: { values: [] } } }, B.token, ['participantIds']);
 check('Regler: medlem kan ikke afmelde sig efter afslutning', r.status === 403, String(r.status));
+
+// --- 7. Biblioteket viser historik fra smagningen ---
+await admin.goto(BASE + `/#/bibliotek/${libId}`);
+await admin.waitForFunction(() => (document.getElementById('hist')?.textContent || '').includes('Romaften'), null, { timeout: 15000 });
+const hist = await admin.locator('#hist').textContent();
+check('Bibliotek: historik viser smagningen, gennemsnit og deltager', hist.includes('Romaften i Vejle') && hist.includes('8,0') && hist.includes('Bo Medlem') && hist.includes('Vanilje'));
+await admin.screenshot({ path: 'tests/screenshots/shot-library.png', fullPage: true });
 
 await browser.close();
 const fails = results.filter((x) => x[0] === 'FAIL');
