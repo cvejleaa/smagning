@@ -158,6 +158,9 @@ check('UI: ingen hemmelig note vises før bedømmelse', !pageText.includes('HEMM
 check('Egne ord: medlemmets aromaliste indeholder admins eget ord og de nye faste ord', (await member.locator('#rate .tags input[value=Marcipan]').count()) === 1 && (await member.locator('#rate .tags input[value="Brun farin"]').count()) === 1);
 await member.locator('#rate [name=samlet]').fill('8');
 await member.locator('#rate [name=naese]').fill('7');
+await member.locator('#rate [name=naese]').dispatchEvent('input');
+check('Bedømmelse: vægtet score vises live (5,4)', (await member.locator('#live-weighted').textContent()) === '5,4');
+await member.locator('#rate [name=naese]').fill('7');
 await member.locator('.tags label', { hasText: 'Vanilje' }).click();
 await member.fill('#rate [name=guess]', 'Jamaica');
 await member.fill('#rate [name=comment]', 'Dejlig');
@@ -168,7 +171,8 @@ check('Afsløring: navn og hemmelig note vises efter bedømmelse', after.include
 check('Afsløring: admins smagsprofil vises (duft, smag, aromaer)', after.includes('Administratorens smagsprofil') && after.includes('Kraftig') && after.includes('Lang eftersmag') && after.includes('Banan') && after.includes('Marcipan'));
 check('Afsløring: profil skjult før bedømmelse', !pageText.includes('Kraftig'));
 check('Afsløring: billede vises', (await member.locator('.reveal img.rumimg').getAttribute('src') || '').startsWith('data:image/jpeg'));
-check('Samlet vurdering vises når alle (1 af 1) har bedømt', after.includes('8,0') && after.includes('Bo Medlem'));
+// Vægtet: 0,05·5 + 0,2·7 + 0,5·5 + 0,25·5 = 5,4. Uvægtet snit = 5,5 og egen samlet = 8,0 må IKKE stå som fælles score.
+check('Samlet vurdering vises når alle (1 af 1) har bedømt – vægtet 5,4', after.includes('5,4') && !after.includes('5,5 / 10') && !after.includes('8,0 / 10') && after.includes('Bo Medlem'));
 await member.screenshot({ path: 'tests/screenshots/shot-member-reveal.png', fullPage: true });
 
 // Regler: nu kan private læses, men bedømmelse kan ikke ændres
@@ -187,7 +191,7 @@ check('Regler: rom 2 er stadig skjult', r.status === 403, String(r.status));
 // --- 5. Rangliste på smagningssiden ---
 await member.goto(BASE + `/#/smagning/${tId}`); await sleep(1200);
 const tText = await member.locator('#t').textContent();
-check('Rangliste viser rom 1 med rigtigt navn og gennemsnit', tText.includes('Rangliste') && tText.includes('Appleton Estate 12') && tText.includes('8,0'));
+check('Rangliste viser rom 1 med rigtigt navn og vægtet score', tText.includes('Rangliste') && tText.includes('Appleton Estate 12') && tText.includes('5,4') && !tText.includes('8,0'));
 check('Rom 2 stadig anonym på listen', !tText.includes('Rom nr. 2 (') );
 await member.screenshot({ path: 'tests/screenshots/shot-member-tasting.png', fullPage: true });
 
@@ -203,7 +207,7 @@ check('Regler: medlem kan ikke afmelde sig efter afslutning', r.status === 403, 
 await admin.goto(BASE + `/#/bibliotek/${libId}`);
 await admin.waitForFunction(() => (document.getElementById('hist')?.textContent || '').includes('Romaften'), null, { timeout: 15000 });
 const hist = await admin.locator('#hist').textContent();
-check('Bibliotek: historik viser smagningen, gennemsnit og deltager', hist.includes('Romaften i Vejle') && hist.includes('8,0') && hist.includes('Bo Medlem') && hist.includes('Vanilje'));
+check('Bibliotek: historik viser smagningen, vægtet score og deltager', hist.includes('Romaften i Vejle') && hist.includes('5,4') && !hist.includes('8,0') && hist.includes('Bo Medlem') && hist.includes('Vanilje'));
 await admin.screenshot({ path: 'tests/screenshots/shot-library.png', fullPage: true });
 
 // --- 8. AI-plan: nøgle, forslag (API'et mockes), anvend rækkefølge, manuskript ---

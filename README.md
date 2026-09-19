@@ -7,6 +7,11 @@ kommentar) og får derefter afsløret rommens identitet, billede og
 administratorens noter. Når alle deltagere har bedømt en rom, vises den
 samlede vurdering og en rangliste.
 
+Den fælles score for en rom er et vægtet gennemsnit af deltagernes fire
+delkarakterer: farve 5 %, duft 20 %, smag 50 %, eftersmag 25 % (`WEIGHTS` i
+`app.js`). Smagerens egen "samlet vurdering" vises kun til smageren selv og
+indgår ikke i den fælles score, ranglisten eller bibliotekets historik.
+
 Administrator har et **rombibliotek**: alle romme gemmes dér med oplysninger,
 billede og noter, kan hentes ind i nye smagninger, og viser resultater fra
 alle tidligere smagninger (gennemsnit pr. dimension, aromaer, deltagernes
@@ -122,7 +127,7 @@ npm run test:e2e                  # i et andet vindue
 Appen bruger automatisk emulatorerne, når den åbnes fra `localhost` /
 `127.0.0.1` (se toppen af `public/app.js`). `tests/e2e.mjs` gennemgår hele
 forløbet med to brugere i browseren og efterprøver reglerne direkte via REST
-(49 tjek: rolle, bibliotek med billede, smagsprofil og egne ord, oprettelse, tilmelding, skjult
+(50 tjek: rolle, bibliotek med billede, smagsprofil og egne ord, oprettelse, tilmelding, skjult
 afsløring før bedømmelse, afsløring med billede efter, låst bedømmelse,
 samlet vurdering, rangliste, afslutning, historik i biblioteket, AI-plan
 med mocket API, anvendt rækkefølge og manuskript).

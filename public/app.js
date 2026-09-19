@@ -26,8 +26,14 @@ const DIMS = [
   { key: "naese",    label: "Næse (duft)",        hint: "Intensitet, kompleksitet, renhed" },
   { key: "smag",     label: "Smag og mundfølelse", hint: "Sødme, balance, fylde" },
   { key: "eftersmag", label: "Eftersmag (finish)", hint: "Længde, udvikling" },
-  { key: "samlet",   label: "Samlet vurdering",   hint: "Din helhedsscore" },
+  { key: "samlet",   label: "Samlet vurdering",   hint: "Din egen rettesnor – indgår ikke i den fælles score" },
 ];
+// Den fælles score er et vægtet gennemsnit af de fire delkarakterer. Smagerens egen
+// "samlet" er kun til smageren selv og indgår ikke.
+const WEIGHTS = { udseende: 0.05, naese: 0.20, smag: 0.50, eftersmag: 0.25 };
+const WEIGHTS_TEXT = "Vægtning: farve 5 %, duft 20 %, smag 50 %, eftersmag 25 %. Smagerens egen samlede vurdering indgår ikke.";
+const weighted = (scores) => Object.entries(WEIGHTS).reduce((sum, [k, w]) => sum + w * (Number(scores?.[k]) || 0), 0);
+const avgWeighted = (ratings) => ratings.length ? ratings.reduce((sum, r) => sum + weighted(r.scores), 0) / ratings.length : 0;
 // Administratorens smagsprofil for en rom: faste, gængse markeringer, så intet skal skrives ind hver gang.
 const PROFILE_GROUPS = [
   { key: "duft", label: "Duft (næse)", hint: "intensitet og karakter", options: [
@@ -342,7 +348,7 @@ function viewTasting(tId) {
     const rows = rums.map((r) => {
       const rs = ratings.filter((x) => x.rumId === r.id);
       const complete = r.status === "lukket" || (parts.length > 0 && rs.length >= parts.length);
-      const avg = rs.length ? rs.reduce((s, x) => s + (Number(x.scores?.samlet) || 0), 0) / rs.length : 0;
+      const avg = avgWeighted(rs);
       const mine = rs.find((x) => x.uid === user.uid);
       const label = privateNames[r.id] ? `${esc(privateNames[r.id])} <span class="muted small">(${esc(r.publicName)})</span>` : esc(r.publicName);
       return { r, rs, complete, avg, mine, label };
@@ -381,8 +387,9 @@ function viewTasting(tId) {
       ${ranked.length ? `
         <h2>Rangliste</h2>
         <div class="card">
-          <table><thead><tr><th>#</th><th>Rom</th><th class="num">Gns. samlet</th><th class="num">Bedømt</th></tr></thead>
+          <table><thead><tr><th>#</th><th>Rom</th><th class="num">Vægtet score</th><th class="num">Bedømt</th></tr></thead>
           <tbody>${ranked.map((x, i) => `<tr><td>${i + 1}</td><td>${x.label}</td><td class="num"><strong>${fmt1(x.avg)}</strong></td><td class="num">${x.rs.length}</td></tr>`).join("")}</tbody></table>
+          <p class="muted small">${WEIGHTS_TEXT}</p>
           ${rows.some((x) => !x.complete) ? `<p class="muted small">Romme, hvor ikke alle har bedømt endnu, vises først når alle er færdige (eller admin lukker rommen).</p>` : ""}
         </div>` : ""}`;
 
@@ -460,7 +467,8 @@ function viewRum(tId, rId) {
         <div class="card">
           <h2 style="margin-top:0">Din bedømmelse</h2>
           <table><tbody>
-            ${DIMS.map((d) => `<tr><td>${d.label}</td><td class="num"><strong>${esc(m.scores?.[d.key])}</strong></td></tr>`).join("")}
+            ${DIMS.map((d) => `<tr><td>${d.label}${d.key === "samlet" ? ' <span class="muted small">(din egen rettesnor)</span>' : ""}</td><td class="num"><strong>${esc(m.scores?.[d.key])}</strong></td></tr>`).join("")}
+            <tr><td><strong>Din vægtede score</strong> <span class="muted small">(tæller i den fælles)</span></td><td class="num"><strong>${fmt1(weighted(m.scores))}</strong></td></tr>
           </tbody></table>
           ${(m.tags || []).length ? `<p class="small">Aromaer: ${m.tags.map(esc).join(", ")}</p>` : ""}
           ${m.guess ? `<p class="small">Dit gæt: ${esc(m.guess)}</p>` : ""}
@@ -482,6 +490,7 @@ function viewRum(tId, rId) {
       <form id="rate" class="card">
         <h2 style="margin-top:0">Din bedømmelse</h2>
         <p class="muted small">Giv 1–10 point pr. område. Når du gemmer, kan bedømmelsen ikke ændres – og først da afsløres, hvad administratoren har skrevet om rommen.</p>
+        <p class="small">Din vægtede score: <strong id="live-weighted">${fmt1(weighted({ udseende: 5, naese: 5, smag: 5, eftersmag: 5 }))}</strong> <span class="muted">(${WEIGHTS_TEXT})</span></p>
         ${DIMS.map((d) => `
           <label>${d.label} <span class="hint">${d.hint}</span>
             <div class="score-row"><input type="range" name="${d.key}" min="1" max="10" step="1" value="5" oninput="this.nextElementSibling.value=this.value"><output>5</output></div>
@@ -493,6 +502,11 @@ function viewRum(tId, rId) {
         <p><button type="submit">Gem bedømmelse</button></p>
       </form>`;
     $f.querySelectorAll(".tags input").forEach((cb) => (cb.onchange = () => cb.parentElement.classList.toggle("on", cb.checked)));
+    const rateForm = document.getElementById("rate");
+    rateForm.addEventListener("input", () => {
+      const sc = {}; Object.keys(WEIGHTS).forEach((k) => (sc[k] = Number(rateForm[k].value)));
+      document.getElementById("live-weighted").textContent = fmt1(weighted(sc));
+    });
     document.getElementById("rate").onsubmit = async (ev) => {
       ev.preventDefault();
       const f = ev.target;
@@ -549,21 +563,24 @@ function viewRum(tId, rId) {
     if (!n) { $a.innerHTML = `<div class="card"><h2 style="margin-top:0">Samlet vurdering</h2><p class="muted">Ingen bedømmelser.</p></div>`; return; }
     const avg = {};
     DIMS.forEach((d) => (avg[d.key] = ratings.reduce((s, r) => s + (Number(r.scores?.[d.key]) || 0), 0) / n));
-    const samlet = ratings.map((r) => Number(r.scores?.samlet) || 0);
+    const perPerson = ratings.map((r) => weighted(r.scores));
+    const total = avgWeighted(ratings);
     const tagCount = {};
     ratings.forEach((r) => (r.tags || []).forEach((t) => (tagCount[t] = (tagCount[t] || 0) + 1)));
     const topTags = Object.entries(tagCount).sort((a, b) => b[1] - a[1]).slice(0, 8);
-    const sorted = [...ratings].sort((a, b) => (Number(b.scores?.samlet) || 0) - (Number(a.scores?.samlet) || 0));
+    const sorted = [...ratings].sort((a, b) => weighted(b.scores) - weighted(a.scores));
     $a.innerHTML = `
       <div class="card">
         <h2 style="margin-top:0">Samlet vurdering</h2>
-        <p class="big">${fmt1(avg.samlet)} <span class="small muted" style="font-weight:400">/ 10 i gennemsnit (${n} bedømmelser, laveste ${Math.min(...samlet)}, højeste ${Math.max(...samlet)})</span></p>
-        <table><tbody>${DIMS.filter((d) => d.key !== "samlet").map((d) => `<tr><td>${d.label}</td><td class="num"><strong>${fmt1(avg[d.key])}</strong></td></tr>`).join("")}</tbody></table>
+        <p class="big">${fmt1(total)} <span class="small muted" style="font-weight:400">/ 10 vægtet (${n} bedømmelser, laveste ${fmt1(Math.min(...perPerson))}, højeste ${fmt1(Math.max(...perPerson))})</span></p>
+        <table><tbody>${DIMS.filter((d) => d.key !== "samlet").map((d) => `<tr><td>${d.label} <span class="muted small">${Math.round(WEIGHTS[d.key] * 100)} %</span></td><td class="num"><strong>${fmt1(avg[d.key])}</strong></td></tr>`).join("")}</tbody></table>
+        <p class="muted small">${WEIGHTS_TEXT}</p>
         ${topTags.length ? `<p class="small">Mest fundne aromaer: ${topTags.map(([t, c]) => `${esc(t)} (${c})`).join(", ")}</p>` : ""}
         <h3>Deltagernes bedømmelser</h3>
-        <table><thead><tr><th>Deltager</th>${DIMS.map((d) => `<th class="num">${d.label.split(" ")[0]}</th>`).join("")}${isAdmin() ? "<th></th>" : ""}</tr></thead>
+        <table><thead><tr><th>Deltager</th>${DIMS.filter((d) => d.key !== "samlet").map((d) => `<th class="num">${d.label.split(" ")[0]}</th>`).join("")}<th class="num">Vægtet</th><th class="num muted">Egen</th>${isAdmin() ? "<th></th>" : ""}</tr></thead>
         <tbody>${sorted.map((r) => `<tr><td>${esc(nameOf(r.uid))}${r.guess ? `<br><span class="muted small">Gæt: ${esc(r.guess)}</span>` : ""}${r.comment ? `<br><span class="small">${esc(r.comment)}</span>` : ""}</td>
-          ${DIMS.map((d) => `<td class="num">${esc(r.scores?.[d.key])}</td>`).join("")}
+          ${DIMS.filter((d) => d.key !== "samlet").map((d) => `<td class="num">${esc(r.scores?.[d.key])}</td>`).join("")}
+          <td class="num"><strong>${fmt1(weighted(r.scores))}</strong></td><td class="num muted">${esc(r.scores?.samlet)}</td>
           ${isAdmin() ? `<td><button class="small danger" data-del="${r.id}" title="Slet bedømmelsen, så deltageren kan bedømme igen">Slet</button></td>` : ""}</tr>`).join("")}</tbody></table>
       </div>`;
     $a.querySelectorAll("[data-del]").forEach((b) => (b.onclick = async () => {
@@ -989,16 +1006,16 @@ function viewLibraryRum(id) {
     const tagsOf = (list) => { const c = {}; list.forEach((r) => (r.tags || []).forEach((t) => (c[t] = (c[t] || 0) + 1))); return Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 8); };
     $h.innerHTML = `
       ${all.length ? `<div class="card"><strong>På tværs af ${blocks.length} smagning${blocks.length === 1 ? "" : "er"}</strong>
-        <p class="big">${fmt1(avgOf(all, "samlet"))} <span class="small muted" style="font-weight:400">/ 10 (${all.length} bedømmelser)</span></p>
+        <p class="big">${fmt1(avgWeighted(all))} <span class="small muted" style="font-weight:400">/ 10 vægtet (${all.length} bedømmelser)</span></p>
         <table><tbody>${DIMS.filter((d) => d.key !== "samlet").map((d) => `<tr><td>${d.label}</td><td class="num"><strong>${fmt1(avgOf(all, d.key))}</strong></td></tr>`).join("")}</tbody></table>
         ${tagsOf(all).length ? `<p class="small">Mest fundne aromaer: ${tagsOf(all).map(([t, c]) => `${esc(t)} (${c})`).join(", ")}</p>` : ""}</div>` : ""}
       ${blocks.map(({ t, rum, ratings }) => `
         <div class="card">
           <div class="row between"><a href="#/smagning/${t.id}/rom/${rum.id}"><strong>${esc(t.title)}</strong></a><span class="muted small">${esc(fmtDate(t.date, t.time))}</span></div>
           ${ratings.length ? `
-            <p><strong>${fmt1(avgOf(ratings, "samlet"))}</strong> / 10 i gennemsnit · ${ratings.length} bedømmelser · ${DIMS.filter((d) => d.key !== "samlet").map((d) => `${d.label.split(" ")[0]} ${fmt1(avgOf(ratings, d.key))}`).join(" · ")}</p>
+            <p><strong>${fmt1(avgWeighted(ratings))}</strong> / 10 vægtet · ${ratings.length} bedømmelser · ${DIMS.filter((d) => d.key !== "samlet").map((d) => `${d.label.split(" ")[0]} ${fmt1(avgOf(ratings, d.key))}`).join(" · ")}</p>
             ${tagsOf(ratings).length ? `<p class="small">Aromaer: ${tagsOf(ratings).map(([tg, c]) => `${esc(tg)} (${c})`).join(", ")}</p>` : ""}
-            <table><tbody>${ratings.map((r) => `<tr><td>${esc(nameOf(r.uid))}${r.guess ? ` <span class="muted small">(gæt: ${esc(r.guess)})</span>` : ""}${r.comment ? `<br><span class="small">${esc(r.comment)}</span>` : ""}</td><td class="num"><strong>${esc(r.scores?.samlet)}</strong></td></tr>`).join("")}</tbody></table>`
+            <table><tbody>${ratings.map((r) => `<tr><td>${esc(nameOf(r.uid))}${r.guess ? ` <span class="muted small">(gæt: ${esc(r.guess)})</span>` : ""}${r.comment ? `<br><span class="small">${esc(r.comment)}</span>` : ""}</td><td class="num"><strong>${fmt1(weighted(r.scores))}</strong> <span class="muted small">(egen: ${esc(r.scores?.samlet)})</span></td></tr>`).join("")}</tbody></table>`
           : `<p class="muted small">Ingen bedømmelser.</p>`}
         </div>`).join("")}`;
   }
