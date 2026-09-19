@@ -153,6 +153,24 @@ await member.waitForSelector('#join');
 await member.click('#join'); await sleep(800);
 check('Medlem tilmeldt (knap skifter til Meld fra)', (await member.locator('#join').textContent()) === 'Meld fra');
 check('Medlem ser rom som "Rom nr. 1" uden navn', (await member.locator('[data-rum]').first().textContent()).includes('Rom nr. 1') && !(await member.locator('#t').textContent()).includes('Appleton'));
+// Avatar: Bo vælger papegøjen, derefter eget billede
+await member.goto(BASE + '/#/profil'); await member.waitForSelector('#profile .avatars');
+await member.locator('.avatars .pick[title=Papegøje]').click();
+await member.click('#profile button[type=submit]');
+await member.waitForFunction(() => document.querySelector('#toast.show')?.textContent === 'Profilen er gemt', null, { timeout: 10000 });
+let userDoc = await fsGet(`users/${B.uid}`, B.token).then((r) => r.json());
+check('Avatar: emoji gemt på profilen', userDoc.fields?.avatar?.mapValue?.fields?.value?.stringValue === '🦜');
+await member.goto(BASE + `/#/smagning/${tId}`); await sleep(1000);
+check('Avatar: vises ved deltagerens navn', (await member.locator('#t').innerHTML()).includes('🦜'));
+await member.goto(BASE + '/#/profil'); await member.waitForSelector('#avatar-file');
+await member.locator('#avatar-file').setInputFiles({ name: 'mig.png', mimeType: 'image/png', buffer: png });
+await member.waitForFunction(() => document.querySelector('#profile [name=avatarImage]').value.startsWith('data:image/jpeg'), null, { timeout: 10000 });
+await member.waitForFunction(() => !document.querySelector('#toast.show'), null, { timeout: 10000 }); // forrige bekræftelse skal være væk
+await member.click('#profile button[type=submit]');
+await member.waitForFunction(() => document.querySelector('#toast.show')?.textContent === 'Profilen er gemt', null, { timeout: 10000 });
+userDoc = await fsGet(`users/${B.uid}`, B.token).then((r) => r.json());
+check('Avatar: eget billede gemt som JPEG data-URL', userDoc.fields?.avatar?.mapValue?.fields?.type?.stringValue === 'image' && (userDoc.fields?.avatar?.mapValue?.fields?.data?.stringValue || '').startsWith('data:image/jpeg'));
+await member.goto(BASE + `/#/smagning/${tId}`); await member.waitForSelector('[data-rum]');
 const r2 = rumIds.find((x) => x !== r1);
 // Cai: tredje bruger, der tilmelder sig men er langsom til at bedømme
 await fetch(`${AUTH}/accounts:signUp?key=fake`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'cai@test.dk', password: 'hemmelig1', returnSecureToken: true }) });
@@ -194,6 +212,23 @@ check('ratedBy opdateret med Bo', (rum1Doc.fields?.ratedBy?.arrayValue?.values |
 r = await fsPatch(`tastings/${tId}/rums/${r1}`, { ratedBy: { arrayValue: { values: [{ stringValue: B.uid }, { stringValue: C.uid }] } } }, C.token, ['ratedBy']);
 check('Regler: Cai kan ikke markere sig som færdig uden at have bedømt', r.status === 403, String(r.status));
 
+// Bo genåbner og retter sin bedømmelse, mens rommen stadig er åben
+await member.waitForSelector('#edit-rating');
+await member.click('#edit-rating');
+await member.waitForSelector('#rate');
+check('Redigér: formularen er udfyldt med de gemte værdier', (await member.locator('#rate [name=naese]').inputValue()) === '7' && (await member.locator('#rate [name=comment]').inputValue()) === 'Dejlig' && (await member.locator('#rate [name=guessCountry]').inputValue()) === 'jamaica' && await member.locator('#rate .tags input[value=Vanilje]').isChecked());
+await member.fill('#rate [name=comment]', 'Dejlig igen');
+await member.locator('#rate [name=smag]').fill('9');
+await member.click('#rate button[type=submit]');
+await member.waitForFunction(() => document.querySelector('#toast.show')?.textContent === 'Din bedømmelse er opdateret', null, { timeout: 10000 });
+const edited = await fsGet(`tastings/${tId}/ratings/${r1}_${B.uid}`, B.token).then((r) => r.json());
+check('Redigér: rettelsen er gemt (kommentar og smag)', edited.fields?.comment?.stringValue === 'Dejlig igen' && edited.fields?.scores?.mapValue?.fields?.smag?.integerValue === '9');
+// Sæt smag tilbage til 5, så de senere vægtede tal (5,4) holder
+await member.click('#edit-rating'); await member.waitForSelector('#rate');
+await member.locator('#rate [name=smag]').fill('5'); await member.fill('#rate [name=comment]', 'Dejlig');
+await member.click('#rate button[type=submit]');
+await member.waitForFunction(() => document.querySelector('#toast.show')?.textContent === 'Din bedømmelse er opdateret', null, { timeout: 10000 });
+
 // Værten frigiver rom 1
 r = await fsPatch(`tastings/${tId}/rums/${r1}`, { status: { stringValue: 'lukket' } }, A.token, ['status']);
 check('Admin frigiver rom 1', r.ok, String(r.status));
@@ -212,7 +247,8 @@ await member.screenshot({ path: 'tests/screenshots/shot-member-reveal.png', full
 r = await fsGet(`tastings/${tId}/rums/${r1}/private/info`, B.token);
 check('Regler: medlem KAN læse admin-noter efter frigivelse', r.ok, String(r.status));
 r = await fsPatch(`tastings/${tId}/ratings/${r1}_${B.uid}`, { scores: { mapValue: { fields: { samlet: { integerValue: '10' } } } } }, B.token, ['scores']);
-check('Regler: bedømmelse kan ikke ændres bagefter', r.status === 403, String(r.status));
+check('Regler: bedømmelse kan ikke ændres efter frigivelse', r.status === 403, String(r.status));
+check('UI: ingen redigér-knap efter frigivelse', (await member.locator('#edit-rating').count()) === 0 && after.includes('Bedømmelsen er låst'));
 r = await fsPatch(`tastings/${tId}/ratings/${r1}_${A.uid}`, { uid: { stringValue: A.uid }, rumId: { stringValue: r1 }, scores: { mapValue: { fields: { samlet: { integerValue: '1' } } } } }, B.token);
 check('Regler: medlem kan ikke oprette bedømmelse for en anden', r.status === 403, String(r.status));
 
@@ -229,6 +265,12 @@ r = await fsPatch(`tastings/${tId}/rums/${r2}`, { ratedBy: { arrayValue: { value
 check('Regler: Cai må markere sig færdig på rom 2', r.ok, String(r.status));
 r = await fsGet(`tastings/${tId}/rums/${r2}/private/info`, B.token);
 check('Regler: rom 2 afsløres, når alle har bedømt', r.ok, String(r.status));
+r = await fsPatch(`tastings/${tId}/ratings/${r2}_${B.uid}`, { comment: { stringValue: 'rettet' } }, B.token, ['comment']);
+check('Regler: egen bedømmelse på åben rom kan rettes', r.ok, String(r.status));
+r = await fsPatch(`tastings/${tId}/ratings/${r2}_${B.uid}`, { uid: { stringValue: C.uid } }, B.token, ['uid']);
+check('Regler: uid kan ikke ændres ved rettelse', r.status === 403, String(r.status));
+r = await fsPatch(`tastings/${tId}/ratings/${r2}_${C.uid}`, { comment: { stringValue: 'snyd' } }, B.token, ['comment']);
+check('Regler: kan ikke rette andres bedømmelse', r.status === 403, String(r.status));
 
 // --- 5. Rangliste på smagningssiden ---
 await member.goto(BASE + `/#/smagning/${tId}`); await sleep(1500);
@@ -243,6 +285,8 @@ r = await fsPatch(`tastings/${tId}`, { status: { stringValue: 'afsluttet' } }, A
 check('Admin kan afslutte smagningen', r.ok, String(r.status));
 r = await fsPatch(`tastings/${tId}`, { participantIds: { arrayValue: { values: [] } } }, B.token, ['participantIds']);
 check('Regler: medlem kan ikke afmelde sig efter afslutning', r.status === 403, String(r.status));
+r = await fsPatch(`tastings/${tId}/ratings/${r2}_${B.uid}`, { comment: { stringValue: 'for sent' } }, B.token, ['comment']);
+check('Regler: bedømmelse kan ikke rettes efter afslutning', r.status === 403, String(r.status));
 
 // --- 7. Biblioteket viser historik fra smagningen ---
 await admin.goto(BASE + `/#/bibliotek/${libId}`);

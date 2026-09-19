@@ -4,8 +4,8 @@ rules_version = '2';
 //  - Alle indloggede kan læse brugere, smagninger, romme og bedømmelser.
 //  - Kun admin (users/{uid}.role == 'admin') kan oprette/rette smagninger og romme.
 //  - Et medlem kan kun tilmelde/afmelde sig selv på en smagning.
-//  - Et medlem kan kun oprette sin egen bedømmelse, og kun mens rommen er åben.
-//    En bedømmelse kan ikke ændres bagefter (admin kan slette den).
+//  - Et medlem kan kun oprette og rette sin egen bedømmelse, og kun mens rommen
+//    er åben (ikke frigivet af admin) og smagningen ikke er afsluttet.
 //  - Rommens "private" dokument (navn, billede, admin-noter, web-info) kan først
 //    læses, når ALLE deltagere har bedømt rommen (rums/{r}.ratedBy dækker
 //    participantIds), når admin har frigivet rommen (status 'lukket'), eller
@@ -115,7 +115,13 @@ service cloud.firestore {
           && ratingId == request.resource.data.rumId + '_' + request.auth.uid
           && request.resource.data.uid == request.auth.uid
           && get(/databases/$(database)/documents/tastings/$(t)/rums/$(request.resource.data.rumId)).data.status == 'aaben';
-        allow update: if false;
+        // Egen bedømmelse kan rettes, indtil værten frigiver rommen eller afslutter smagningen
+        allow update: if signedIn()
+          && resource.data.uid == request.auth.uid
+          && request.resource.data.uid == resource.data.uid
+          && request.resource.data.rumId == resource.data.rumId
+          && tastingData(t).status != 'afsluttet'
+          && get(/databases/$(database)/documents/tastings/$(t)/rums/$(resource.data.rumId)).data.status == 'aaben';
         allow delete: if isAdmin();
       }
     }
