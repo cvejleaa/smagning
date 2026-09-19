@@ -1,0 +1,47 @@
+# Automatisk deploy til Firebase (hosting + Firestore-regler) ved hvert push til main.
+# Kræver GitHub-secret FIREBASE_SERVICE_ACCOUNT (JSON-nøgle til en servicekonto med rollen
+# "Firebase Admin"). Mangler nøglen, springes deployet over med en besked i loggen.
+name: Deploy til Firebase
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      HAS_KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Mangler nøgle?
+        if: env.HAS_KEY != 'true'
+        run: |
+          echo "::warning::Secret FIREBASE_SERVICE_ACCOUNT mangler – deploy sprunget over. Se README, afsnittet Deploy."
+
+      - uses: actions/setup-node@v4
+        if: env.HAS_KEY == 'true'
+        with:
+          node-version: 20
+
+      - name: Skriv servicekonto-nøgle
+        if: env.HAS_KEY == 'true'
+        run: printf '%s' "$KEY" > "$RUNNER_TEMP/sa.json"
+        env:
+          KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+
+      - name: Deploy hosting og Firestore-regler
+        if: env.HAS_KEY == 'true'
+        run: npx --yes firebase-tools@13 deploy --only hosting,firestore:rules,firestore:indexes --project smagning-286ed --non-interactive --force
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/sa.json
+
+      - name: Fjern nøgle
+        if: always()
+        run: rm -f "$RUNNER_TEMP/sa.json"

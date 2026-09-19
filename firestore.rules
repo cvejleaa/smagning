@@ -43,6 +43,15 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // Rombiblioteket er administratorens egen database: master-data pr. rom + billede.
+    // Kun admin – et medlem må ikke kunne kigge i biblioteket under en blindsmagning.
+    match /rumLibrary/{rumId} {
+      allow read, write: if isAdmin();
+      match /media/{docId} {
+        allow read, write: if isAdmin();
+      }
+    }
+
     match /tastings/{t} {
       function onlyJoinOrLeave() {
         let before = resource.data.participantIds.toSet();

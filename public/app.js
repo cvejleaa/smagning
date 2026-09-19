@@ -117,6 +117,7 @@ function renderNav() {
   if (!user) { $nav.innerHTML = ""; return; }
   $nav.innerHTML = `
     <a href="#/">Smagninger</a>
+    ${isAdmin() ? '<a href="#/bibliotek">Rombibliotek</a>' : ""}
     <a href="#/profil">${esc(profile?.name || "Profil")}${isAdmin() ? " (admin)" : ""}</a>
     <button id="logout" class="small">Log ud</button>`;
   document.getElementById("logout").onclick = () => signOut(auth);
@@ -132,6 +133,8 @@ function route() {
   if (p[0] === "smagning" && p[1] && p[2] === "rom" && p[3]) return viewRum(p[1], p[3]);
   if (p[0] === "smagning" && p[1]) return viewTasting(p[1]);
   if (p[0] === "admin" && p[1] === "smagning" && p[2]) return isAdmin() ? viewAdminTasting(p[2]) : viewHome();
+  if (p[0] === "bibliotek" && p[1]) return isAdmin() ? viewLibraryRum(p[1]) : viewHome();
+  if (p[0] === "bibliotek") return isAdmin() ? viewLibrary() : viewHome();
   if (p[0] === "profil") return viewProfile();
   return viewHome();
 }
@@ -468,6 +471,7 @@ function viewRum(tId, rId) {
     $r.innerHTML = `
       <div class="reveal">
         <h2 style="margin-top:0">Afsløring: ${esc(priv.name || rum.publicName)}</h2>
+        ${priv.imageData ? `<p><img class="rumimg" src="${priv.imageData}" alt="${esc(priv.name)}"></p>` : ""}
         ${facts.length ? `<table><tbody>${facts.map(([k, v]) => `<tr><th>${k}</th><td>${esc(v)}</td></tr>`).join("")}</tbody></table>` : ""}
         ${priv.adminNotes ? `<h3>Administratorens noter</h3><pre class="info">${esc(priv.adminNotes)}</pre>` : `<p class="muted small">Administratoren har ikke skrevet noter til denne rom.</p>`}
         ${priv.webInfo ? `<details><summary>Fra nettet</summary><pre class="info">${esc(priv.webInfo)}</pre></details>` : ""}
@@ -528,11 +532,12 @@ function viewAdminTasting(tId) {
         const p = await getDoc(doc(db, "tastings", tId, "rums", d.id, "private", "info"));
         rums.push({ id: d.id, ...d.data(), priv: p.exists() ? p.data() : {} });
       }
-      draw(tasting, rums);
+      const library = await loadLibrary();
+      draw(tasting, rums, library);
     } catch (e) { showError(e); }
   }
 
-  function draw(tasting, rums) {
+  function draw(tasting, rums, library) {
     const $a = document.getElementById("a");
     if (!$a) return;
     $a.innerHTML = `
@@ -550,7 +555,18 @@ function viewAdminTasting(tId) {
         <p><button type="submit">Gem smagning</button> <button type="button" id="delt" class="danger">Slet smagning</button></p>
       </form>
 
-      <div class="row between"><h2>Romme (${rums.length})</h2><button id="addrum">+ Tilføj rom</button></div>
+      <h2>Romme (${rums.length})</h2>
+      <div class="card">
+        <div class="row">
+          <select id="libpick" style="flex:1;min-width:200px;margin:0">
+            <option value="">– vælg rom fra biblioteket –</option>
+            ${library.map((l) => `<option value="${l.id}">${esc(l.name || "(uden navn)")}${l.distillery ? " – " + esc(l.distillery) : ""}</option>`).join("")}
+          </select>
+          <button id="addlib" type="button">Tilføj fra biblioteket</button>
+          <button id="addrum" type="button" class="secondary">+ Opret ny rom</button>
+        </div>
+        <p class="muted small">Alle romme gemmes i <a href="#/bibliotek">rombiblioteket</a> med billede, noter og resultater fra tidligere smagninger.</p>
+      </div>
       ${rums.map((r) => `
         <form class="card rumform" data-id="${r.id}">
           <div class="row between">
@@ -559,25 +575,14 @@ function viewAdminTasting(tId) {
           </div>
           <div class="grid2">
             <label>Rækkefølge<input type="number" name="order" value="${esc(r.order)}" min="1" required></label>
-            <label>Navn på rommen<input type="text" name="name" value="${esc(r.priv.name)}" placeholder="Fx Appleton Estate 12"></label>
-            <label>Destilleri / producent<input type="text" name="distillery" value="${esc(r.priv.distillery)}"></label>
-            <label>Land<input type="text" name="country" value="${esc(r.priv.country)}"></label>
-            <label>Alder / årgang<input type="text" name="age" value="${esc(r.priv.age)}" placeholder="Fx 12 år, NAS, 2009"></label>
-            <label>Alkohol %<input type="text" name="abv" value="${esc(r.priv.abv)}" placeholder="Fx 43"></label>
-            <label>Type<select name="type"><option value="">–</option>${RUM_TYPES.map((t) => `<option ${r.priv.type === t ? "selected" : ""}>${t}</option>`).join("")}</select></label>
-            <label>Fad / lagring<input type="text" name="cask" value="${esc(r.priv.cask)}" placeholder="Fx ex-bourbon, sherry finish"></label>
-            <label>Pris<input type="text" name="price" value="${esc(r.priv.price)}" placeholder="Fx 450 kr."></label>
             <label>Status<select name="status"><option value="aaben" ${r.status !== "lukket" ? "selected" : ""}>Åben for bedømmelse</option><option value="lukket" ${r.status === "lukket" ? "selected" : ""}>Lukket (vis samlet vurdering)</option></select></label>
           </div>
-          <label>Dine noter om rommen <span class="hint">(afsløres for deltageren efter egen bedømmelse)</span><textarea name="adminNotes">${esc(r.priv.adminNotes)}</textarea></label>
-          <label>Info fra nettet <span class="hint">(hentes fra Wikipedia – ret gerne til)</span><textarea name="webInfo">${esc(r.priv.webInfo)}</textarea></label>
+          ${rumFieldsHtml(r.priv)}
+          ${r.libraryId ? `<p class="small"><a href="#/bibliotek/${r.libraryId}">Se rommen i biblioteket (tidligere smagninger)</a></p>` : ""}
           <p class="row">
             <button type="submit">Gem rom</button>
-            <button type="button" class="secondary fetchweb">Hent info fra nettet</button>
-            <a class="btn secondary" target="_blank" rel="noopener" data-search="google">Google</a>
-            <a class="btn secondary" target="_blank" rel="noopener" data-search="rumratings">RumRatings</a>
-            <a class="btn secondary" target="_blank" rel="noopener" data-search="rumx">Rum-X</a>
-            <button type="button" class="danger delrum">Slet rom</button>
+            ${rumToolsHtml()}
+            <button type="button" class="danger delrum">Fjern fra smagningen</button>
           </p>
         </form>`).join("")}`;
 
@@ -607,41 +612,41 @@ function viewAdminTasting(tId) {
         go("#/");
       } catch (e) { showError(e); }
     };
-    document.getElementById("addrum").onclick = async () => {
+    async function addRumToTasting(libraryId, priv) {
       const order = rums.length + 1;
+      const ref = await addDoc(collection(db, "tastings", tId, "rums"), {
+        order, status: "aaben", publicName: publicNameFor(tasting.blind, order, priv.name), libraryId, createdAt: serverTimestamp(),
+      });
+      await setDoc(doc(db, "tastings", tId, "rums", ref.id, "private", "info"), priv);
+    }
+    document.getElementById("addrum").onclick = async () => {
       try {
-        const ref = await addDoc(collection(db, "tastings", tId, "rums"), {
-          order, status: "aaben", publicName: publicNameFor(tasting.blind, order, ""), createdAt: serverTimestamp(),
-        });
-        await setDoc(doc(db, "tastings", tId, "rums", ref.id, "private", "info"), emptyPriv());
+        const priv = emptyPriv();
+        const libraryId = await saveLibraryRum(null, priv, "");
+        await addRumToTasting(libraryId, priv);
+        load();
+      } catch (e) { showError(e); }
+    };
+    document.getElementById("addlib").onclick = async () => {
+      const libraryId = document.getElementById("libpick").value;
+      if (!libraryId) return showError({ message: "Vælg først en rom i listen." });
+      if (rums.some((r) => r.libraryId === libraryId) && !confirm("Rommen er allerede med i smagningen. Tilføj den igen?")) return;
+      try {
+        const { info, imageData } = await loadLibraryRum(libraryId);
+        await addRumToTasting(libraryId, { ...info, imageData });
         load();
       } catch (e) { showError(e); }
     };
     $a.querySelectorAll(".rumform").forEach((f) => {
       const id = f.dataset.id;
-      const q = () => [f.name.value, f.distillery.value].filter(Boolean).join(" ");
-      const links = {
-        google: () => `https://www.google.com/search?q=${encodeURIComponent(q() + " rum")}`,
-        rumratings: () => `https://www.rumratings.com/search?q=${encodeURIComponent(q())}`,
-        rumx: () => `https://www.rum-x.com/search?q=${encodeURIComponent(q())}`,
-      };
-      f.querySelectorAll("[data-search]").forEach((a) => (a.onclick = () => { a.href = links[a.dataset.search](); }));
+      const rum = rums.find((r) => r.id === id);
+      bindRumForm(f);
       f.onsubmit = async (ev) => {
         ev.preventDefault();
-        try { await saveRum(id, f, tasting.blind); load(); } catch (e) { showError(e); }
-      };
-      f.querySelector(".fetchweb").onclick = async (ev) => {
-        const btn = ev.target;
-        if (!f.name.value.trim()) return showError({ message: "Skriv rommens navn først." });
-        btn.disabled = true; btn.textContent = "Henter…";
-        try {
-          const text = await fetchWebInfo(q());
-          f.webInfo.value = (f.webInfo.value ? f.webInfo.value + "\n\n" : "") + text;
-        } catch (e) { showError(e); }
-        btn.disabled = false; btn.textContent = "Hent info fra nettet";
+        try { await saveRum(id, rum.libraryId, f, tasting.blind); load(); } catch (e) { showError(e); }
       };
       f.querySelector(".delrum").onclick = async () => {
-        if (!confirm("Slet rommen og dens bedømmelser?")) return;
+        if (!confirm("Fjern rommen fra smagningen og slet dens bedømmelser? (Den bliver i biblioteket.)")) return;
         try {
           await deleteRum(id);
           const rs = await getDocs(query(collection(db, "tastings", tId, "ratings"), where("rumId", "==", id)));
@@ -652,19 +657,204 @@ function viewAdminTasting(tId) {
     });
   }
 
-  async function saveRum(id, f, blind) {
+  // Gemmer rommen både i smagningen (kopi til afsløringen) og i biblioteket (master)
+  async function saveRum(id, libraryId, f, blind) {
     const order = Number(f.order.value) || 1;
-    const priv = {
-      name: f.name.value.trim(), distillery: f.distillery.value.trim(), country: f.country.value.trim(),
-      age: f.age.value.trim(), abv: f.abv.value.trim(), type: f.type.value, cask: f.cask.value.trim(),
-      price: f.price.value.trim(), adminNotes: f.adminNotes.value.trim(), webInfo: f.webInfo.value.trim(),
-    };
-    await updateDoc(doc(db, "tastings", tId, "rums", id), { order, status: f.status.value, publicName: publicNameFor(blind, order, priv.name) });
-    await setDoc(doc(db, "tastings", tId, "rums", id, "private", "info"), priv);
+    const info = readRumFields(f);
+    const imageData = f.imageData.value;
+    await updateDoc(doc(db, "tastings", tId, "rums", id), { order, status: f.status.value, publicName: publicNameFor(blind, order, info.name) });
+    await setDoc(doc(db, "tastings", tId, "rums", id, "private", "info"), { ...info, imageData });
+    if (libraryId) await saveLibraryRum(libraryId, info, imageData);
   }
   async function deleteRum(id) {
     await deleteDoc(doc(db, "tastings", tId, "rums", id, "private", "info"));
     await deleteDoc(doc(db, "tastings", tId, "rums", id));
+  }
+}
+
+// ---------- Fælles romfelter (bruges i smagning og bibliotek) ----------
+function rumFieldsHtml(p) {
+  return `
+    <div class="grid2">
+      <label>Navn på rommen<input type="text" name="name" value="${esc(p.name)}" placeholder="Fx Appleton Estate 12"></label>
+      <label>Destilleri / producent<input type="text" name="distillery" value="${esc(p.distillery)}"></label>
+      <label>Land<input type="text" name="country" value="${esc(p.country)}"></label>
+      <label>Alder / årgang<input type="text" name="age" value="${esc(p.age)}" placeholder="Fx 12 år, NAS, 2009"></label>
+      <label>Alkohol %<input type="text" name="abv" value="${esc(p.abv)}" placeholder="Fx 43"></label>
+      <label>Type<select name="type"><option value="">–</option>${RUM_TYPES.map((t) => `<option ${p.type === t ? "selected" : ""}>${t}</option>`).join("")}</select></label>
+      <label>Fad / lagring<input type="text" name="cask" value="${esc(p.cask)}" placeholder="Fx ex-bourbon, sherry finish"></label>
+      <label>Pris<input type="text" name="price" value="${esc(p.price)}" placeholder="Fx 450 kr."></label>
+    </div>
+    <label>Billede <span class="hint">(fx flasken – vises ved afsløringen; skaleres ned automatisk)</span></label>
+    <div class="imgbox">
+      <img class="rumimg preview" src="${p.imageData || ""}" alt="" ${p.imageData ? "" : "hidden"}>
+      <input type="hidden" name="imageData" value="${p.imageData || ""}">
+      <div class="row"><input type="file" accept="image/*" class="imgfile" style="margin:0"><button type="button" class="small secondary imgclear" ${p.imageData ? "" : "hidden"}>Fjern billede</button></div>
+    </div>
+    <label>Dine noter om rommen <span class="hint">(afsløres for deltageren efter egen bedømmelse)</span><textarea name="adminNotes">${esc(p.adminNotes)}</textarea></label>
+    <label>Info fra nettet <span class="hint">(hentes fra Wikipedia – ret gerne til)</span><textarea name="webInfo">${esc(p.webInfo)}</textarea></label>`;
+}
+const rumToolsHtml = () => `
+    <button type="button" class="secondary fetchweb">Hent info fra nettet</button>
+    <a class="btn secondary" target="_blank" rel="noopener" data-search="google">Google</a>
+    <a class="btn secondary" target="_blank" rel="noopener" data-search="rumratings">RumRatings</a>
+    <a class="btn secondary" target="_blank" rel="noopener" data-search="rumx">Rum-X</a>`;
+
+function readRumFields(f) {
+  return {
+    name: f.name.value.trim(), distillery: f.distillery.value.trim(), country: f.country.value.trim(),
+    age: f.age.value.trim(), abv: f.abv.value.trim(), type: f.type.value, cask: f.cask.value.trim(),
+    price: f.price.value.trim(), adminNotes: f.adminNotes.value.trim(), webInfo: f.webInfo.value.trim(),
+  };
+}
+
+// Binder søgelinks, "hent info" og billedvalg på en romformular
+function bindRumForm(f) {
+  const q = () => [f.name.value, f.distillery.value].filter(Boolean).join(" ");
+  const links = {
+    google: () => `https://www.google.com/search?q=${encodeURIComponent(q() + " rum")}`,
+    rumratings: () => `https://www.rumratings.com/search?q=${encodeURIComponent(q())}`,
+    rumx: () => `https://www.rum-x.com/search?q=${encodeURIComponent(q())}`,
+  };
+  f.querySelectorAll("[data-search]").forEach((a) => (a.onclick = () => { a.href = links[a.dataset.search](); }));
+  const fw = f.querySelector(".fetchweb");
+  if (fw) fw.onclick = async () => {
+    if (!f.name.value.trim()) return showError({ message: "Skriv rommens navn først." });
+    fw.disabled = true; fw.textContent = "Henter…";
+    try {
+      const text = await fetchWebInfo(q());
+      f.webInfo.value = (f.webInfo.value ? f.webInfo.value + "\n\n" : "") + text;
+    } catch (e) { showError(e); }
+    fw.disabled = false; fw.textContent = "Hent info fra nettet";
+  };
+  const img = f.querySelector(".preview"), clear = f.querySelector(".imgclear"), file = f.querySelector(".imgfile");
+  const setImage = (data) => { f.imageData.value = data; img.src = data || ""; img.hidden = !data; clear.hidden = !data; };
+  file.onchange = async () => {
+    const fil = file.files[0];
+    if (!fil) return;
+    try { setImage(await resizeImage(fil)); } catch (e) { showError({ message: "Billedet kunne ikke læses: " + (e.message || e) }); }
+  };
+  clear.onclick = () => { setImage(""); file.value = ""; };
+}
+
+// Skalerer et billede ned til max 800 px og returnerer en JPEG data-URL (holder Firestore-dokumentet lille)
+function resizeImage(file, max = 800, quality = 0.8) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const im = new Image();
+    im.onload = () => {
+      const scale = Math.min(1, max / Math.max(im.width, im.height));
+      const c = document.createElement("canvas");
+      c.width = Math.round(im.width * scale); c.height = Math.round(im.height * scale);
+      c.getContext("2d").drawImage(im, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(url);
+      const data = c.toDataURL("image/jpeg", quality);
+      if (data.length > 700000) reject(new Error("Billedet er for stort selv efter nedskalering."));
+      else resolve(data);
+    };
+    im.onerror = () => { URL.revokeObjectURL(url); reject(new Error("ukendt billedformat")); };
+    im.src = url;
+  });
+}
+
+// ---------- Rombibliotek (kun admin): master-data for hver rom + billede ----------
+async function loadLibrary() {
+  const s = await getDocs(query(collection(db, "rumLibrary"), orderBy("name")));
+  return s.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+async function loadLibraryRum(id) {
+  const [i, m] = await Promise.all([getDoc(doc(db, "rumLibrary", id)), getDoc(doc(db, "rumLibrary", id, "media", "image"))]);
+  return { info: i.exists() ? { ...emptyPriv(), ...i.data() } : emptyPriv(), imageData: m.exists() ? m.data().data || "" : "" };
+}
+async function saveLibraryRum(id, info, imageData) {
+  const ref = id ? doc(db, "rumLibrary", id) : doc(collection(db, "rumLibrary"));
+  await setDoc(ref, { ...info, updatedAt: serverTimestamp() }, { merge: true });
+  await setDoc(doc(db, "rumLibrary", ref.id, "media", "image"), { data: imageData || "" });
+  return ref.id;
+}
+
+function viewLibrary() {
+  $app.innerHTML = `
+    <div class="row between"><h1>Rombibliotek</h1><button id="newlib">+ Ny rom</button></div>
+    <p class="muted">Alle romme, der har været – eller skal – med i en smagning. Klik på en rom for at se og rette oplysninger og se resultater fra tidligere smagninger.</p>
+    <div id="error" class="error" hidden></div>
+    <div id="list"><p class="muted">Indlæser…</p></div>`;
+  document.getElementById("newlib").onclick = async () => {
+    try { go(`#/bibliotek/${await saveLibraryRum(null, emptyPriv(), "")}`); } catch (e) { showError(e); }
+  };
+  loadLibrary().then((rums) => {
+    const $l = document.getElementById("list");
+    if (!$l) return;
+    if (!rums.length) { $l.innerHTML = `<p class="muted">Biblioteket er tomt. Opret en rom her, eller fra en smagning.</p>`; return; }
+    $l.innerHTML = rums.map((r) => `
+      <div class="card link" data-id="${r.id}">
+        <strong>${esc(r.name || "(uden navn)")}</strong>
+        <span class="muted small">${[r.distillery, r.country, r.age, r.abv ? r.abv + " %" : ""].filter(Boolean).map(esc).join(" · ")}</span>
+      </div>`).join("");
+    $l.querySelectorAll("[data-id]").forEach((el) => (el.onclick = () => go(`#/bibliotek/${el.dataset.id}`)));
+  }).catch(showError);
+}
+
+function viewLibraryRum(id) {
+  $app.innerHTML = `<p><a href="#/bibliotek">← Til rombiblioteket</a></p><div id="error" class="error" hidden></div><div id="lib"><p class="muted">Indlæser…</p></div>`;
+  (async () => {
+    const { info, imageData } = await loadLibraryRum(id);
+    const $l = document.getElementById("lib");
+    if (!$l) return;
+    $l.innerHTML = `
+      <h1>${esc(info.name || "Ny rom")}</h1>
+      <form id="libform" class="card">
+        ${rumFieldsHtml({ ...info, imageData })}
+        <p class="row"><button type="submit">Gem</button>${rumToolsHtml()}<button type="button" id="dellib" class="danger">Slet fra biblioteket</button></p>
+      </form>
+      <h2>Tidligere smagninger</h2>
+      <div id="hist"><p class="muted">Henter…</p></div>`;
+    const f = document.getElementById("libform");
+    bindRumForm(f);
+    f.onsubmit = async (ev) => {
+      ev.preventDefault();
+      try { await saveLibraryRum(id, readRumFields(f), f.imageData.value); go("#/bibliotek"); } catch (e) { showError(e); }
+    };
+    document.getElementById("dellib").onclick = async () => {
+      if (!confirm("Slet rommen fra biblioteket? Smagninger, den har været med i, beholder deres kopi.")) return;
+      try { await deleteDoc(doc(db, "rumLibrary", id, "media", "image")); await deleteDoc(doc(db, "rumLibrary", id)); go("#/bibliotek"); } catch (e) { showError(e); }
+    };
+    drawHistory(id);
+  })().catch(showError);
+
+  // Finder rommen i alle smagninger og samler bedømmelserne pr. smagning
+  async function drawHistory(libraryId) {
+    const ts = await getDocs(query(collection(db, "tastings"), orderBy("date", "desc")));
+    const blocks = [];
+    let all = [];
+    for (const t of ts.docs) {
+      const rs = await getDocs(query(collection(db, "tastings", t.id, "rums"), where("libraryId", "==", libraryId)));
+      for (const r of rs.docs) {
+        const rat = await getDocs(query(collection(db, "tastings", t.id, "ratings"), where("rumId", "==", r.id)));
+        const ratings = rat.docs.map((d) => d.data());
+        all = all.concat(ratings);
+        blocks.push({ t: { id: t.id, ...t.data() }, rum: { id: r.id, ...r.data() }, ratings });
+      }
+    }
+    const $h = document.getElementById("hist");
+    if (!$h) return;
+    if (!blocks.length) { $h.innerHTML = `<p class="muted">Rommen har ikke været med i en smagning endnu.</p>`; return; }
+    const avgOf = (list, key) => list.length ? list.reduce((s, r) => s + (Number(r.scores?.[key]) || 0), 0) / list.length : 0;
+    const tagsOf = (list) => { const c = {}; list.forEach((r) => (r.tags || []).forEach((t) => (c[t] = (c[t] || 0) + 1))); return Object.entries(c).sort((a, b) => b[1] - a[1]).slice(0, 8); };
+    $h.innerHTML = `
+      ${all.length ? `<div class="card"><strong>På tværs af ${blocks.length} smagning${blocks.length === 1 ? "" : "er"}</strong>
+        <p class="big">${fmt1(avgOf(all, "samlet"))} <span class="small muted" style="font-weight:400">/ 10 (${all.length} bedømmelser)</span></p>
+        <table><tbody>${DIMS.filter((d) => d.key !== "samlet").map((d) => `<tr><td>${d.label}</td><td class="num"><strong>${fmt1(avgOf(all, d.key))}</strong></td></tr>`).join("")}</tbody></table>
+        ${tagsOf(all).length ? `<p class="small">Mest fundne aromaer: ${tagsOf(all).map(([t, c]) => `${esc(t)} (${c})`).join(", ")}</p>` : ""}</div>` : ""}
+      ${blocks.map(({ t, rum, ratings }) => `
+        <div class="card">
+          <div class="row between"><a href="#/smagning/${t.id}/rom/${rum.id}"><strong>${esc(t.title)}</strong></a><span class="muted small">${esc(fmtDate(t.date, t.time))}</span></div>
+          ${ratings.length ? `
+            <p><strong>${fmt1(avgOf(ratings, "samlet"))}</strong> / 10 i gennemsnit · ${ratings.length} bedømmelser · ${DIMS.filter((d) => d.key !== "samlet").map((d) => `${d.label.split(" ")[0]} ${fmt1(avgOf(ratings, d.key))}`).join(" · ")}</p>
+            ${tagsOf(ratings).length ? `<p class="small">Aromaer: ${tagsOf(ratings).map(([tg, c]) => `${esc(tg)} (${c})`).join(", ")}</p>` : ""}
+            <table><tbody>${ratings.map((r) => `<tr><td>${esc(nameOf(r.uid))}${r.guess ? ` <span class="muted small">(gæt: ${esc(r.guess)})</span>` : ""}${r.comment ? `<br><span class="small">${esc(r.comment)}</span>` : ""}</td><td class="num"><strong>${esc(r.scores?.samlet)}</strong></td></tr>`).join("")}</tbody></table>`
+          : `<p class="muted small">Ingen bedømmelser.</p>`}
+        </div>`).join("")}`;
   }
 }
 
