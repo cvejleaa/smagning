@@ -6,8 +6,11 @@ rules_version = '2';
 //  - Et medlem kan kun tilmelde/afmelde sig selv på en smagning.
 //  - Et medlem kan kun oprette sin egen bedømmelse, og kun mens rommen er åben.
 //    En bedømmelse kan ikke ændres bagefter (admin kan slette den).
-//  - Rommens "private" dokument (navn, admin-noter, web-info) kan først læses,
-//    når medlemmet selv har bedømt rommen — eller smagningen er afsluttet.
+//  - Rommens "private" dokument (navn, billede, admin-noter, web-info) kan først
+//    læses, når ALLE deltagere har bedømt rommen (rums/{r}.ratedBy dækker
+//    participantIds), når admin har frigivet rommen (status 'lukket'), eller
+//    når smagningen er afsluttet. Et medlem må selv skrive sig i ratedBy, men kun
+//    når medlemmets bedømmelse findes.
 service cloud.firestore {
   match /databases/{database}/documents {
 
@@ -79,12 +82,28 @@ service cloud.firestore {
       }
 
       match /rums/{r} {
+        // Medlemmet må kun tilføje sig selv i ratedBy, og kun når bedømmelsen findes
+        function markSelfRated() {
+          return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['ratedBy'])
+            && request.resource.data.ratedBy.toSet()
+               == resource.data.get('ratedBy', []).toSet().union([request.auth.uid].toSet())
+            && hasRated(t, r);
+        }
         allow read: if signedIn();
-        allow write: if isAdmin();
+        allow create, delete: if isAdmin();
+        allow update: if isAdmin() || (signedIn() && markSelfRated());
 
         match /private/{docId} {
-          allow read: if isAdmin()
-            || (signedIn() && (hasRated(t, r) || tastingData(t).status == 'afsluttet'));
+          function rumData() {
+            return get(/databases/$(database)/documents/tastings/$(t)/rums/$(r)).data;
+          }
+          function revealed() {
+            let parts = tastingData(t).participantIds;
+            return tastingData(t).status == 'afsluttet'
+              || rumData().status == 'lukket'
+              || (parts.size() > 0 && rumData().get('ratedBy', []).hasAll(parts));
+          }
+          allow read: if isAdmin() || (signedIn() && revealed());
           allow write: if isAdmin();
         }
       }
