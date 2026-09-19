@@ -44,6 +44,14 @@ const fsGet = (path, token) => fetch(`${FS}/${path}`, { headers: { Authorization
 const fsPatch = (path, fields, token, mask) => fetch(`${FS}/${path}${mask ? '?' + mask.map((m) => 'updateMask.fieldPaths=' + m).join('&') : ''}`, { method: 'PATCH', headers: { Authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ fields }) });
 const fsPost = (path, fields, token) => fetch(`${FS}/${path}`, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'content-type': 'application/json' }, body: JSON.stringify({ fields }) });
 
+// --- 0. Installérbar app: manifest og ikoner serveres ---
+const manifest = await fetch(BASE + '/manifest.webmanifest').then((r) => r.ok ? r.json() : null).catch(() => null);
+check('PWA: manifest serveres med navn og ikoner', manifest?.name === 'Smagning' && manifest.icons?.some((i) => i.sizes === '512x512'));
+const iconOk = (await Promise.all(['/icons/icon-192.png', '/icons/icon-512.png', '/icons/apple-touch-icon.png', '/icons/favicon-32.png'].map((p) => fetch(BASE + p).then((r) => r.ok && r.headers.get('content-type')?.includes('image/png')).catch(() => false)))).every(Boolean);
+check('PWA: alle ikoner serveres som PNG', iconOk);
+const html = await fetch(BASE + '/').then((r) => r.text());
+check('PWA: siden linker til manifest og apple-touch-icon', html.includes('rel="manifest"') && html.includes('rel="apple-touch-icon"'));
+
 // --- 1. To brugere oprettes ---
 const admin = await newPage();
 await signup(admin, 'Anna Admin', 'anna@test.dk');
