@@ -150,7 +150,7 @@ npm run test:e2e                  # i et andet vindue
 Appen bruger automatisk emulatorerne, når den åbnes fra `localhost` /
 `127.0.0.1` (se toppen af `public/app.js`). `tests/e2e.mjs` gennemgår hele
 forløbet med to brugere i browseren og efterprøver reglerne direkte via REST
-(74 tjek: installérbar app, avatar, rolle, bibliotek med billede, smagsprofil og egne ord, oprettelse, tilmelding, skjult
+(75 tjek: installérbar app, mobil-layout, avatar, rolle, bibliotek med billede, smagsprofil og egne ord, oprettelse, tilmelding, skjult
 afsløring indtil alle har bedømt eller værten frigiver, afsløring med billede, låst bedømmelse,
 redigering af egen bedømmelse indtil frigivelse, samlet vurdering, rangliste,
 afslutning, historik i biblioteket, AI-plan

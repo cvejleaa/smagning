@@ -11,7 +11,7 @@
   --danger: #b3261e;
 }
 * { box-sizing: border-box; }
-html, body { margin: 0; padding: 0; }
+html, body { margin: 0; padding: 0; overflow-x: hidden; }
 body {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   background: var(--bg);
@@ -114,3 +114,11 @@ label.sub { margin-top: 4px; font-weight: 500; font-size: 0.9rem; }
 .avatars .pick { display: flex; flex-direction: column; align-items: center; gap: 2px; margin: 0; padding: 6px; border: 2px solid var(--line); border-radius: 10px; cursor: pointer; font-weight: 400; width: 84px; text-align: center; }
 .avatars .pick input { display: none; }
 .avatars .pick.on { border-color: var(--accent); background: #f3ebe0; }
+/* Brede tabeller ruller i deres egen boks i stedet for at gøre hele siden bredere */
+.table-wrap { overflow-x: auto; max-width: 100%; -webkit-overflow-scrolling: touch; margin-top: 8px; }
+.table-wrap table { margin-top: 0; }
+@media (max-width: 520px) {
+  th, td { padding: 5px 6px; font-size: 0.85rem; }
+  button.small { padding: 3px 8px; font-size: 0.85rem; }
+  main { padding: 12px; }
+}
