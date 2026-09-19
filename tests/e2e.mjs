@@ -145,7 +145,7 @@ const r1 = rum1.name.split('/').pop();
 check('Blind: publicName er "Rom nr. 1" selv om navnet er sat', rum1.fields.publicName.stringValue === 'Rom nr. 1', rum1.fields.publicName.stringValue);
 await admin.screenshot({ path: 'tests/screenshots/shot-admin.png', fullPage: true });
 
-// --- 3. Medlem tilmelder sig ---
+// --- 3. To medlemmer tilmelder sig: Bo (browser) og Cai (REST) ---
 await member.goto(BASE + '/#/'); await sleep(800);
 check('Medlem ser smagningen på forsiden', (await member.locator('.card', { hasText: 'Romaften i Vejle' }).count()) === 1);
 await member.locator('.card', { hasText: 'Romaften i Vejle' }).click();
@@ -153,12 +153,19 @@ await member.waitForSelector('#join');
 await member.click('#join'); await sleep(800);
 check('Medlem tilmeldt (knap skifter til Meld fra)', (await member.locator('#join').textContent()) === 'Meld fra');
 check('Medlem ser rom som "Rom nr. 1" uden navn', (await member.locator('[data-rum]').first().textContent()).includes('Rom nr. 1') && !(await member.locator('#t').textContent()).includes('Appleton'));
+const r2 = rumIds.find((x) => x !== r1);
+// Cai: tredje bruger, der tilmelder sig men er langsom til at bedømme
+await fetch(`${AUTH}/accounts:signUp?key=fake`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ email: 'cai@test.dk', password: 'hemmelig1', returnSecureToken: true }) });
+const C = await idToken('cai@test.dk');
+await fsPatch(`users/${C.uid}`, { name: { stringValue: 'Cai Sen' }, email: { stringValue: 'cai@test.dk' }, role: { stringValue: 'medlem' } }, C.token);
+r = await fsPatch(`tastings/${tId}`, { participantIds: { arrayValue: { values: [{ stringValue: B.uid }, { stringValue: C.uid }] } } }, C.token, ['participantIds']);
+check('Regler: Cai kan tilmelde sig selv', r.ok, String(r.status));
 
-// Regler: private/info kan ikke læses før bedømmelse
+// Regler: private/info kan ikke læses før alle har bedømt
 r = await fsGet(`tastings/${tId}/rums/${r1}/private/info`, B.token);
 check('Regler: medlem kan IKKE læse admin-noter før bedømmelse', r.status === 403, String(r.status));
 
-// --- 4. Medlem bedømmer rom 1 ---
+// --- 4. Bo bedømmer rom 1 – men afsløringen venter på Cai eller værten ---
 await member.locator('[data-rum]').first().click();
 await member.waitForSelector('#rate');
 const pageText = await member.locator('#app').textContent();
@@ -168,49 +175,71 @@ await member.locator('#rate [name=samlet]').fill('8');
 await member.locator('#rate [name=naese]').fill('7');
 await member.locator('#rate [name=naese]').dispatchEvent('input');
 check('Bedømmelse: vægtet score vises live (5,4)', (await member.locator('#live-weighted').textContent()) === '5,4');
-await member.locator('#rate [name=naese]').fill('7');
 await member.locator('.tags label', { hasText: 'Vanilje' }).click();
 await member.fill('#rate [name=guessCountry]', 'jamaica');
 await member.fill('#rate [name=guessAbv]', '41');
 await member.fill('#rate [name=guessName]', 'Appleton');
 await member.fill('#rate [name=comment]', 'Dejlig');
 await member.click('#rate button[type=submit]');
+await member.waitForFunction(() => document.querySelector('#toast.show')?.textContent === 'Din bedømmelse er gemt', null, { timeout: 10000 });
+await sleep(1500);
+const afterOwn = await member.locator('#app').textContent();
+// (eget gæt "Navn: Appleton" må gerne stå – det er medlemmets eget)
+const waitOk = [(await member.locator('.reveal').count()) === 0, !afterOwn.includes('Appleton Estate 12'), !afterOwn.includes('HEMMELIG NOTE'), !afterOwn.includes('5,4 / 10'), afterOwn.includes('mangler: Cai Sen')];
+check('Afsløring VENTER efter egen bedømmelse (1 af 2): ingen navn, note eller samlet score', waitOk.every(Boolean), waitOk.join());
+r = await fsGet(`tastings/${tId}/rums/${r1}/private/info`, B.token);
+check('Regler: medlem kan IKKE læse admin-noter efter egen bedømmelse, når andre mangler', r.status === 403, String(r.status));
+const rum1Doc = await fsGet(`tastings/${tId}/rums/${r1}`, A.token).then((r) => r.json());
+check('ratedBy opdateret med Bo', (rum1Doc.fields?.ratedBy?.arrayValue?.values || []).some((v) => v.stringValue === B.uid));
+r = await fsPatch(`tastings/${tId}/rums/${r1}`, { ratedBy: { arrayValue: { values: [{ stringValue: B.uid }, { stringValue: C.uid }] } } }, C.token, ['ratedBy']);
+check('Regler: Cai kan ikke markere sig som færdig uden at have bedømt', r.status === 403, String(r.status));
+
+// Værten frigiver rom 1
+r = await fsPatch(`tastings/${tId}/rums/${r1}`, { status: { stringValue: 'lukket' } }, A.token, ['status']);
+check('Admin frigiver rom 1', r.ok, String(r.status));
 await member.waitForSelector('.reveal', { timeout: 10000 });
+await sleep(800);
 const after = await member.locator('#app').textContent();
-check('Afsløring: navn og hemmelig note vises efter bedømmelse', after.includes('Appleton Estate 12') && after.includes('HEMMELIG NOTE'));
+check('Afsløring: navn og hemmelig note vises efter frigivelse', after.includes('Appleton Estate 12') && after.includes('HEMMELIG NOTE'));
 check('Afsløring: admins smagsprofil vises (duft, smag, aromaer)', after.includes('Administratorens smagsprofil') && after.includes('Kraftig') && after.includes('Lang eftersmag') && after.includes('Banan') && after.includes('Marcipan'));
 check('Afsløring: profil skjult før bedømmelse', !pageText.includes('Kraftig'));
 check('Gæt: land, alkohol og navn vises hver for sig og markeres rigtige (43 vs 41 inden for 2)', after.includes('Land: jamaica ✓') && after.includes('Alkohol: 41 % ✓') && after.includes('Navn: Appleton ✓'));
 check('Afsløring: billede vises', (await member.locator('.reveal img.rumimg').getAttribute('src') || '').startsWith('data:image/jpeg'));
 // Vægtet: 0,05·5 + 0,2·7 + 0,5·5 + 0,25·5 = 5,4. Uvægtet snit = 5,5 og egen samlet = 8,0 må IKKE stå som fælles score.
-check('Samlet vurdering vises når alle (1 af 1) har bedømt – vægtet 5,4', after.includes('5,4') && !after.includes('5,5 / 10') && !after.includes('8,0 / 10') && after.includes('Bo Medlem'));
+check('Samlet vurdering vises efter frigivelse – vægtet 5,4', after.includes('5,4') && !after.includes('5,5 / 10') && !after.includes('8,0 / 10') && after.includes('Bo Medlem'));
 await member.screenshot({ path: 'tests/screenshots/shot-member-reveal.png', fullPage: true });
 
-// Regler: nu kan private læses, men bedømmelse kan ikke ændres
 r = await fsGet(`tastings/${tId}/rums/${r1}/private/info`, B.token);
-check('Regler: medlem KAN læse admin-noter efter bedømmelse', r.ok, String(r.status));
+check('Regler: medlem KAN læse admin-noter efter frigivelse', r.ok, String(r.status));
 r = await fsPatch(`tastings/${tId}/ratings/${r1}_${B.uid}`, { scores: { mapValue: { fields: { samlet: { integerValue: '10' } } } } }, B.token, ['scores']);
 check('Regler: bedømmelse kan ikke ændres bagefter', r.status === 403, String(r.status));
-// Regler: kan ikke bedømme på en andens vegne
 r = await fsPatch(`tastings/${tId}/ratings/${r1}_${A.uid}`, { uid: { stringValue: A.uid }, rumId: { stringValue: r1 }, scores: { mapValue: { fields: { samlet: { integerValue: '1' } } } } }, B.token);
 check('Regler: medlem kan ikke oprette bedømmelse for en anden', r.status === 403, String(r.status));
-// Rom 2: private stadig lukket
-const r2 = rumIds.find((x) => x !== r1);
+
+// Rom 2: afsløres af sig selv, når ALLE har bedømt (uden at værten frigiver)
+const scores6 = { mapValue: { fields: { udseende: { integerValue: '6' }, naese: { integerValue: '6' }, smag: { integerValue: '6' }, eftersmag: { integerValue: '6' }, samlet: { integerValue: '6' } } } };
+const rate = (uid, token) => fsPatch(`tastings/${tId}/ratings/${r2}_${uid}`, { uid: { stringValue: uid }, rumId: { stringValue: r2 }, scores: scores6, tags: { arrayValue: {} }, comment: { stringValue: '' } }, token);
+r = await rate(B.uid, B.token); check('Bo bedømmer rom 2 (REST)', r.ok, String(r.status));
+r = await fsPatch(`tastings/${tId}/rums/${r2}`, { ratedBy: { arrayValue: { values: [{ stringValue: B.uid }] } } }, B.token, ['ratedBy']);
+check('Regler: Bo må markere sig færdig på rom 2', r.ok, String(r.status));
 r = await fsGet(`tastings/${tId}/rums/${r2}/private/info`, B.token);
-check('Regler: rom 2 er stadig skjult', r.status === 403, String(r.status));
+check('Regler: rom 2 stadig skjult, når kun Bo har bedømt', r.status === 403, String(r.status));
+r = await rate(C.uid, C.token); check('Cai bedømmer rom 2 (REST)', r.ok, String(r.status));
+r = await fsPatch(`tastings/${tId}/rums/${r2}`, { ratedBy: { arrayValue: { values: [{ stringValue: B.uid }, { stringValue: C.uid }] } } }, C.token, ['ratedBy']);
+check('Regler: Cai må markere sig færdig på rom 2', r.ok, String(r.status));
+r = await fsGet(`tastings/${tId}/rums/${r2}/private/info`, B.token);
+check('Regler: rom 2 afsløres, når alle har bedømt', r.ok, String(r.status));
 
 // --- 5. Rangliste på smagningssiden ---
-await member.goto(BASE + `/#/smagning/${tId}`); await sleep(1200);
+await member.goto(BASE + `/#/smagning/${tId}`); await sleep(1500);
 const tText = await member.locator('#t').textContent();
-check('Rangliste viser rom 1 med rigtigt navn og vægtet score', tText.includes('Rangliste') && tText.includes('Appleton Estate 12') && tText.includes('5,4') && !tText.includes('8,0'));
-check('Rom 2 stadig anonym på listen', !tText.includes('Rom nr. 2 (') );
+check('Rangliste viser rom 1 (frigivet) med rigtigt navn og vægtet score', tText.includes('Rangliste') && tText.includes('Appleton Estate 12') && tText.includes('5,4') && !tText.includes('8,0'));
+check('Rangliste viser rom 2 (alle har bedømt) med vægtet 6,0', tText.includes('6,0'));
 await member.screenshot({ path: 'tests/screenshots/shot-member-tasting.png', fullPage: true });
 
-// --- 6. Admin lukker rom 2 uden bedømmelser; afslutter smagning → medlem kan læse rom 2 ---
+// --- 6. Admin afslutter smagningen ---
 r = await fsPatch(`tastings/${tId}`, { status: { stringValue: 'afsluttet' } }, A.token, ['status']);
 check('Admin kan afslutte smagningen', r.ok, String(r.status));
-r = await fsGet(`tastings/${tId}/rums/${r2}/private/info`, B.token);
-check('Regler: efter afslutning kan medlem læse rom 2', r.ok, String(r.status));
 r = await fsPatch(`tastings/${tId}`, { participantIds: { arrayValue: { values: [] } } }, B.token, ['participantIds']);
 check('Regler: medlem kan ikke afmelde sig efter afslutning', r.status === 403, String(r.status));
 

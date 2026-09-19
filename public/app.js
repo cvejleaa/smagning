@@ -347,7 +347,9 @@ function viewTasting(tId) {
 
   async function loadPrivateNames() {
     for (const r of rums) {
-      const mayRead = isAdmin() || tasting.status === "afsluttet" || ratings.some((x) => x.rumId === r.id && x.uid === user.uid);
+      const parts = tasting.participantIds || [];
+      const allRated = parts.length > 0 && parts.every((u) => (r.ratedBy || []).includes(u));
+      const mayRead = isAdmin() || tasting.status === "afsluttet" || r.status === "lukket" || allRated;
       if (!mayRead || privateNames[r.id] !== undefined) continue;
       privateNames[r.id] = null; // markér som undervejs
       try {
@@ -369,7 +371,7 @@ function viewTasting(tId) {
     // Rangliste: kun for romme hvor alle har bedømt, eller admin har lukket rommen
     const rows = rums.map((r) => {
       const rs = ratings.filter((x) => x.rumId === r.id);
-      const complete = r.status === "lukket" || (parts.length > 0 && rs.length >= parts.length);
+      const complete = tasting.status === "afsluttet" || r.status === "lukket" || (parts.length > 0 && parts.every((u) => (r.ratedBy || []).includes(u)));
       const avg = avgWeighted(rs);
       const mine = rs.find((x) => x.uid === user.uid);
       const label = privateNames[r.id] ? `${esc(privateNames[r.id])} <span class="muted small">(${esc(r.publicName)})</span>` : esc(r.publicName);
@@ -401,7 +403,7 @@ function viewTasting(tId) {
         <div class="card link" data-rum="${x.r.id}">
           <div class="row between">
             <div><strong>${x.label}</strong><br>
-              <span class="small muted">${x.rs.length} af ${parts.length} har bedømt${x.r.status === "lukket" ? " · lukket" : ""}</span></div>
+              <span class="small muted">${x.rs.length} af ${parts.length} har bedømt${x.r.status === "lukket" ? " · frigivet" : ""}</span></div>
             <div>${x.mine ? `<span class="badge ok">Din score: ${esc(x.mine.scores?.samlet)}</span>` : (joined && x.r.status === "aaben" ? '<span class="badge warn">Bedøm</span>' : '<span class="badge muted">Se</span>')}</div>
           </div>
         </div>`).join("")}
@@ -412,7 +414,7 @@ function viewTasting(tId) {
           <table><thead><tr><th>#</th><th>Rom</th><th class="num">Vægtet score</th><th class="num">Bedømt</th></tr></thead>
           <tbody>${ranked.map((x, i) => `<tr><td>${i + 1}</td><td>${x.label}</td><td class="num"><strong>${fmt1(x.avg)}</strong></td><td class="num">${x.rs.length}</td></tr>`).join("")}</tbody></table>
           <p class="muted small">${WEIGHTS_TEXT}</p>
-          ${rows.some((x) => !x.complete) ? `<p class="muted small">Romme, hvor ikke alle har bedømt endnu, vises først når alle er færdige (eller admin lukker rommen).</p>` : ""}
+          ${rows.some((x) => !x.complete) ? `<p class="muted small">Romme, hvor ikke alle har bedømt endnu, vises først når alle er færdige – eller når værten frigiver rommen.</p>` : ""}
         </div>` : ""}`;
 
     $t.querySelectorAll("[data-rum]").forEach((el) => (el.onclick = () => go(`#/smagning/${tId}/rom/${el.dataset.rum}`)));
@@ -446,7 +448,10 @@ function viewRum(tId, rId) {
   }, showError));
 
   const mine = () => ratings.find((x) => x.uid === user.uid);
-  const mayReveal = () => isAdmin() || tasting?.status === "afsluttet" || !!mine();
+  const parts = () => tasting?.participantIds || [];
+  const allRated = () => parts().length > 0 && parts().every((u) => (rum?.ratedBy || []).includes(u));
+  const released = () => tasting?.status === "afsluttet" || rum?.status === "lukket" || allRated();
+  const mayReveal = () => isAdmin() || released();
 
   async function loadPrivate() {
     if (priv || privTried || !mayReveal()) return;
@@ -472,7 +477,7 @@ function viewRum(tId, rId) {
     document.getElementById("head").innerHTML = `
       <h1>${esc(rum.publicName)}</h1>
       <p class="muted">${esc(tasting.title)} · ${rum.status === "lukket" ? "Rommen er lukket for bedømmelse" : "Åben for bedømmelse"}</p>
-      ${isAdmin() ? `<p><button id="toggle" class="small secondary">${rum.status === "lukket" ? "Genåbn rommen" : "Luk rommen og vis samlet vurdering"}</button></p>` : ""}`;
+      ${isAdmin() ? `<p><button id="toggle" class="small secondary">${rum.status === "lukket" ? "Genåbn rommen (skjul igen)" : "Frigiv afsløring og samlet vurdering (luk rommen)"}</button></p>` : ""}`;
     const $t = document.getElementById("toggle");
     if ($t) $t.onclick = async () => {
       try { await updateDoc(doc(db, "tastings", tId, "rums", rId), { status: rum.status === "lukket" ? "aaben" : "lukket" }); } catch (e) { showError(e); }
@@ -511,7 +516,7 @@ function viewRum(tId, rId) {
     $f.innerHTML = `
       <form id="rate" class="card">
         <h2 style="margin-top:0">Din bedømmelse</h2>
-        <p class="muted small">Giv 1–10 point pr. område. Når du gemmer, kan bedømmelsen ikke ændres – og først da afsløres, hvad administratoren har skrevet om rommen.</p>
+        <p class="muted small">Giv 1–10 point pr. område. Når du gemmer, kan bedømmelsen ikke ændres. Rommens identitet, administratorens noter og den samlede vurdering vises, når alle har bedømt – eller når værten frigiver dem.</p>
         <p class="small">Din vægtede score: <strong id="live-weighted">${fmt1(weighted({ udseende: 5, naese: 5, smag: 5, eftersmag: 5 }))}</strong> <span class="muted">(${WEIGHTS_TEXT})</span></p>
         ${DIMS.map((d) => `
           <label>${d.label} <span class="hint">${d.hint}</span>
@@ -550,6 +555,8 @@ function viewRum(tId, rId) {
           comment: f.comment.value.trim(),
           createdAt: serverTimestamp(),
         });
+        // Markér at man har bedømt (bruges af reglerne til at afgøre, om alle er færdige)
+        await updateDoc(doc(db, "tastings", tId, "rums", rId), { ratedBy: arrayUnion(user.uid) });
         toast("Din bedømmelse er gemt");
       } catch (e) { btn.disabled = false; showError(e); }
     };
@@ -559,7 +566,10 @@ function viewRum(tId, rId) {
     const $r = document.getElementById("reveal");
     if (!$r) return;
     if (!mayReveal()) {
-      $r.innerHTML = `<p class="muted small">Rommens identitet og administratorens noter vises, når du har gemt din bedømmelse.</p>`;
+      const missing = parts().filter((u) => !(rum.ratedBy || []).includes(u)).map((u) => esc(nameOf(u)));
+      $r.innerHTML = mine()
+        ? `<div class="notice">Din bedømmelse er gemt. Afsløringen og den samlede vurdering vises, når alle har bedømt${missing.length ? ` (mangler: ${missing.join(", ")})` : ""} – eller når værten frigiver rommen.</div>`
+        : `<p class="muted small">Rommens identitet, administratorens noter og den samlede vurdering vises, når alle har bedømt – eller når værten frigiver rommen.</p>`;
       return;
     }
     if (!priv) { $r.innerHTML = `<p class="muted small">Henter afsløring…</p>`; return; }
@@ -580,15 +590,22 @@ function viewRum(tId, rId) {
 
   function drawAgg() {
     const $a = document.getElementById("agg");
-    const parts = tasting.participantIds || [];
     const n = ratings.length;
-    const complete = rum.status === "lukket" || (parts.length > 0 && n >= parts.length);
-    if (!complete) {
+    if (!released() && !isAdmin()) {
       $a.innerHTML = `<div class="card"><h2 style="margin-top:0">Samlet vurdering</h2>
-        <p>${n} af ${parts.length} har bedømt. Den samlede vurdering vises, når alle er færdige${isAdmin() ? " – eller når du lukker rommen" : ""}.</p>
-        <p class="small muted">Mangler: ${parts.filter((u) => !ratings.some((r) => r.uid === u)).map((u) => esc(nameOf(u))).join(", ") || "ingen"}</p></div>`;
+        <p>${n} af ${parts().length} har bedømt. Den samlede vurdering vises, når alle er færdige – eller når værten frigiver rommen.</p>
+        <p class="small muted">Mangler: ${parts().filter((u) => !ratings.some((r) => r.uid === u)).map((u) => esc(nameOf(u))).join(", ") || "ingen"}</p></div>`;
       return;
     }
+    if (isAdmin() && !released()) {
+      $a.innerHTML = `<div class="card"><h2 style="margin-top:0">Samlet vurdering (foreløbig – kun du kan se den)</h2>
+        <p>${n} af ${parts().length} har bedømt. Deltagerne ser den, når alle er færdige, eller når du frigiver rommen.</p>
+        <p class="small muted">Mangler: ${parts().filter((u) => !ratings.some((r) => r.uid === u)).map((u) => esc(nameOf(u))).join(", ") || "ingen"}</p>
+        <div id="agg-admin"></div></div>`;
+      if (!n) return;
+      // fortsæt og tegn den foreløbige tabel for admin nedenfor
+    }
+    if (!n) { $a.innerHTML = `<div class="card"><h2 style="margin-top:0">Samlet vurdering</h2><p class="muted">Ingen bedømmelser.</p></div>`; return; }
     if (!n) { $a.innerHTML = `<div class="card"><h2 style="margin-top:0">Samlet vurdering</h2><p class="muted">Ingen bedømmelser.</p></div>`; return; }
     const avg = {};
     DIMS.forEach((d) => (avg[d.key] = ratings.reduce((s, r) => s + (Number(r.scores?.[d.key]) || 0), 0) / n));
@@ -598,7 +615,8 @@ function viewRum(tId, rId) {
     ratings.forEach((r) => (r.tags || []).forEach((t) => (tagCount[t] = (tagCount[t] || 0) + 1)));
     const topTags = Object.entries(tagCount).sort((a, b) => b[1] - a[1]).slice(0, 8);
     const sorted = [...ratings].sort((a, b) => weighted(b.scores) - weighted(a.scores));
-    $a.innerHTML = `
+    const target = document.getElementById("agg-admin") || $a;
+    target.innerHTML = `
       <div class="card">
         <h2 style="margin-top:0">Samlet vurdering</h2>
         <p class="big">${fmt1(total)} <span class="small muted" style="font-weight:400">/ 10 vægtet (${n} bedømmelser, laveste ${fmt1(Math.min(...perPerson))}, højeste ${fmt1(Math.max(...perPerson))})</span></p>
@@ -614,7 +632,11 @@ function viewRum(tId, rId) {
       </div>`;
     $a.querySelectorAll("[data-del]").forEach((b) => (b.onclick = async () => {
       if (!confirm("Slet denne bedømmelse? Deltageren kan så bedømme igen.")) return;
-      try { await deleteDoc(doc(db, "tastings", tId, "ratings", b.dataset.del)); } catch (e) { showError(e); }
+      try {
+        const uid = b.dataset.del.split("_").pop();
+        await deleteDoc(doc(db, "tastings", tId, "ratings", b.dataset.del));
+        await updateDoc(doc(db, "tastings", tId, "rums", rId), { ratedBy: arrayRemove(uid) });
+      } catch (e) { showError(e); }
     }));
   }
 }
@@ -686,11 +708,11 @@ function viewAdminTasting(tId) {
         <form class="card rumform" data-id="${r.id}">
           <div class="row between">
             <strong>${esc(r.publicName)}</strong>
-            <span class="badge ${r.status === "lukket" ? "muted" : "ok"}">${r.status === "lukket" ? "Lukket" : "Åben for bedømmelse"}</span>
+            <span class="badge ${r.status === "lukket" ? "muted" : "ok"}">${r.status === "lukket" ? "Frigivet" : "Åben for bedømmelse"}</span>
           </div>
           <div class="grid2">
             <label>Rækkefølge<input type="number" name="order" value="${esc(r.order)}" min="1" required></label>
-            <label>Status<select name="status"><option value="aaben" ${r.status !== "lukket" ? "selected" : ""}>Åben for bedømmelse</option><option value="lukket" ${r.status === "lukket" ? "selected" : ""}>Lukket (vis samlet vurdering)</option></select></label>
+            <label>Status<select name="status"><option value="aaben" ${r.status !== "lukket" ? "selected" : ""}>Åben for bedømmelse</option><option value="lukket" ${r.status === "lukket" ? "selected" : ""}>Frigivet (afsløring og samlet vurdering vises)</option></select></label>
           </div>
           ${rumFieldsHtml(r.priv)}
           ${r.libraryId ? `<p class="small"><a href="#/bibliotek/${r.libraryId}">Se rommen i biblioteket (tidligere smagninger)</a></p>` : ""}

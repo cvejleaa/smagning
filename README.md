@@ -3,9 +3,9 @@
 Webapp til smagsbedømmelser i en gruppe – i første omgang romsmagninger.
 Medlemmer opretter sig selv, tilmelder sig en smagning, bedømmer hver rom
 (udseende, næse, smag, eftersmag, samlet score 1–10, aromaer, gæt og
-kommentar) og får derefter afsløret rommens identitet, billede og
-administratorens noter. Når alle deltagere har bedømt en rom, vises den
-samlede vurdering og en rangliste.
+kommentar). Når alle deltagere har bedømt en rom, eller værten frigiver den,
+afsløres rommens identitet, billede og administratorens noter, og den
+samlede vurdering og ranglisten vises.
 
 Den fælles score for en rom er et vægtet gennemsnit af deltagernes fire
 delkarakterer: farve 5 %, duft 20 %, smag 50 %, eftersmag 25 % (`WEIGHTS` i
@@ -39,8 +39,8 @@ Live: <https://smagning.vejleaa.dk> (og <https://smagning-286ed.web.app>).
 | `settings/profileOptions` | admins egne ord til duft/smag/aromaer (lægges oven i de faste lister i `PROFILE_GROUPS` i `app.js`) – alle kan læse, kun admin skriver |
 | `rumLibrary/{id}` | master-data for en rom (navn, destilleri, land, alder, ABV, type, fad, pris, `profile` med afkrydsede duft/smag/aromaer, `adminNotes`, `webInfo`) – kun admin |
 | `rumLibrary/{id}/media/image` | `data`: billedet som JPEG data-URL (max 800 px, skaleret i browseren) – kun admin |
-| `tastings/{id}/rums/{rumId}` | `order`, `status` (`aaben` / `lukket`), `publicName` ("Rom nr. 1" ved blindsmagning), `libraryId` |
-| `tastings/{id}/rums/{rumId}/private/info` | kopi af bibliotekets felter plus `imageData` på tidspunktet for smagningen – kan først læses efter egen bedømmelse |
+| `tastings/{id}/rums/{rumId}` | `order`, `status` (`aaben` / `lukket` = frigivet), `publicName` ("Rom nr. 1" ved blindsmagning), `libraryId`, `ratedBy[]` (uid'er der har bedømt; medlemmet skriver sig selv ind, reglerne kræver at bedømmelsen findes) |
+| `tastings/{id}/rums/{rumId}/private/info` | kopi af bibliotekets felter plus `imageData` – kan først læses når `ratedBy` dækker alle `participantIds`, når rommen er frigivet, eller når smagningen er afsluttet |
 | `tastings/{id}/ratings/{rumId}_{uid}` | `scores` pr. dimension, `tags`, `guess` (`{country, abv, name}` ved blindsmagning), `comment` – kan ikke ændres efter oprettelse |
 
 ### AI-hjælp: rækkefølge og historier
@@ -135,8 +135,8 @@ npm run test:e2e                  # i et andet vindue
 Appen bruger automatisk emulatorerne, når den åbnes fra `localhost` /
 `127.0.0.1` (se toppen af `public/app.js`). `tests/e2e.mjs` gennemgår hele
 forløbet med to brugere i browseren og efterprøver reglerne direkte via REST
-(54 tjek: installérbar app, rolle, bibliotek med billede, smagsprofil og egne ord, oprettelse, tilmelding, skjult
-afsløring før bedømmelse, afsløring med billede efter, låst bedømmelse,
+(64 tjek: installérbar app, rolle, bibliotek med billede, smagsprofil og egne ord, oprettelse, tilmelding, skjult
+afsløring indtil alle har bedømt eller værten frigiver, afsløring med billede, låst bedømmelse,
 samlet vurdering, rangliste, afslutning, historik i biblioteket, AI-plan
 med mocket API, anvendt rækkefølge og manuskript).
 
