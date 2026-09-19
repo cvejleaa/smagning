@@ -60,6 +60,14 @@ krone. Kaldet bruger Anthropics server-side fallback, så en afvist
 forespørgsel automatisk prøves på en anden model; svarer API'et 400 på den
 parameter, gentages kaldet uden.
 
+### Installér som app på telefonen
+
+Siden har et web app manifest og ikoner (glasset 🥃 fra Noto Color Emoji på
+brun baggrund), så den kan lægges på hjemmeskærmen: i Safari på iPhone
+"Del" → "Føj til hjemmeskærm"; i Chrome på Android menuen → "Føj til
+startskærm" / "Installér app". Ikonerne genereres med
+`node tools/make-icons.mjs` (kræver Chromium med Noto Color Emoji).
+
 ## Drift
 
 ### Første gang: gør dig selv til administrator
@@ -127,7 +135,7 @@ npm run test:e2e                  # i et andet vindue
 Appen bruger automatisk emulatorerne, når den åbnes fra `localhost` /
 `127.0.0.1` (se toppen af `public/app.js`). `tests/e2e.mjs` gennemgår hele
 forløbet med to brugere i browseren og efterprøver reglerne direkte via REST
-(51 tjek: rolle, bibliotek med billede, smagsprofil og egne ord, oprettelse, tilmelding, skjult
+(54 tjek: installérbar app, rolle, bibliotek med billede, smagsprofil og egne ord, oprettelse, tilmelding, skjult
 afsløring før bedømmelse, afsløring med billede efter, låst bedømmelse,
 samlet vurdering, rangliste, afslutning, historik i biblioteket, AI-plan
 med mocket API, anvendt rækkefølge og manuskript).
