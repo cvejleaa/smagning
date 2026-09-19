@@ -206,6 +206,41 @@ const hist = await admin.locator('#hist').textContent();
 check('Bibliotek: historik viser smagningen, gennemsnit og deltager', hist.includes('Romaften i Vejle') && hist.includes('8,0') && hist.includes('Bo Medlem') && hist.includes('Vanilje'));
 await admin.screenshot({ path: 'tests/screenshots/shot-library.png', fullPage: true });
 
+// --- 8. AI-plan: nøgle, forslag (API'et mockes), anvend rækkefølge, manuskript ---
+r = await fsGet('settings/ai', B.token);
+check('Regler: medlem kan ikke læse AI-nøglen', r.status === 403, String(r.status));
+r = await fsGet(`tastings/${tId}/private/plan`, B.token);
+check('Regler: medlem kan ikke læse værtens plan', r.status === 403, String(r.status));
+await admin.goto(BASE + '/#/profil'); await admin.waitForSelector('#aikey');
+await admin.fill('#aikey [name=key]', 'sk-ant-test-1234');
+await admin.click('#aikey button[type=submit]');
+await admin.waitForFunction(() => document.querySelector('#toast.show')?.textContent === 'Nøglen er gemt', null, { timeout: 10000 });
+const aiDoc = await fsGet('settings/ai', A.token).then((r) => r.json());
+check('AI-nøgle gemt i settings/ai', aiDoc.fields?.anthropicKey?.stringValue === 'sk-ant-test-1234');
+let aiRequest = null;
+await admin.context().route('https://api.anthropic.com/v1/messages', async (route) => {
+  aiRequest = { headers: route.request().headers(), body: JSON.parse(route.request().postData()) };
+  const reply = { intro: 'Velkommen til aftenens smagning!', order: [{ rumId: r2, why: 'Den lette først' }, { rumId: r1, why: 'Den tunge til sidst' }], stories: { [r1]: 'HISTORIE OM ROM ET: læg mærke til eftersmagen.', [r2]: 'HISTORIE OM ROM TO: en let start.' } };
+  await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ model: 'claude-opus-5', stop_reason: 'end_turn', content: [{ type: 'text', text: '```json\n' + JSON.stringify(reply) + '\n```' }] }) });
+});
+await admin.goto(BASE + `/#/admin/smagning/${tId}`); await admin.waitForSelector('#genplan');
+await admin.click('#genplan');
+await admin.waitForSelector('#applyorder', { timeout: 15000 });
+check('AI: nøgle og model sendes, og blind-instruks er med', aiRequest?.headers['x-api-key'] === 'sk-ant-test-1234' && aiRequest?.body.model === 'claude-opus-5' && aiRequest?.body.system.includes('BLIND') && JSON.stringify(aiRequest?.body).includes('Appleton Estate 12'));
+const planText = await admin.locator('#plan').textContent();
+check('AI: forslag vises med velkomst, rækkefølge og historier', planText.includes('Velkommen til aftenens') && planText.includes('Den lette først') && planText.includes('HISTORIE OM ROM ET'));
+await admin.click('#applyorder');
+await admin.waitForFunction(() => document.querySelector('#toast.show')?.textContent === 'Rækkefølgen er anvendt', null, { timeout: 10000 });
+const rumsAfter = await fsGet(`tastings/${tId}/rums`, A.token).then((r) => r.json());
+const r2After = rumsAfter.documents.find((d) => d.name.endsWith('/' + r2)).fields;
+const r1After = rumsAfter.documents.find((d) => d.name.endsWith('/' + r1)).fields;
+check('AI: rækkefølgen er anvendt på rommene', r2After.order.integerValue === '1' && r2After.publicName.stringValue === 'Rom nr. 1' && r1After.order.integerValue === '2' && r1After.publicName.stringValue === 'Rom nr. 2');
+await admin.goto(BASE + `/#/admin/smagning/${tId}/manuskript`);
+await admin.waitForSelector('.script', { timeout: 10000 });
+const script = await admin.locator('#s').textContent();
+check('Manuskript: velkomst og historier i rækkefølge med rigtige navne', script.includes('Velkommen til aftenens') && script.indexOf('HISTORIE OM ROM TO') < script.indexOf('HISTORIE OM ROM ET') && script.includes('2. Appleton Estate 12'));
+await admin.screenshot({ path: 'tests/screenshots/shot-script.png', fullPage: true });
+
 await browser.close();
 const fails = results.filter((x) => x[0] === 'FAIL');
 console.log(`\n${results.length - fails.length}/${results.length} bestået`);

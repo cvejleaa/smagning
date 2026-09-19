@@ -159,6 +159,7 @@ function route() {
   const p = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean);
   if (p[0] === "smagning" && p[1] && p[2] === "rom" && p[3]) return viewRum(p[1], p[3]);
   if (p[0] === "smagning" && p[1]) return viewTasting(p[1]);
+  if (p[0] === "admin" && p[1] === "smagning" && p[2] && p[3] === "manuskript") return isAdmin() ? viewScript(p[2]) : viewHome();
   if (p[0] === "admin" && p[1] === "smagning" && p[2]) return isAdmin() ? viewAdminTasting(p[2]) : viewHome();
   if (p[0] === "bibliotek" && p[1]) return isAdmin() ? viewLibraryRum(p[1]) : viewHome();
   if (p[0] === "bibliotek") return isAdmin() ? viewLibrary() : viewHome();
@@ -224,7 +225,33 @@ function viewProfile() {
         <p class="muted small">E-mail: ${esc(user.email)} · Rolle: ${isAdmin() ? "administrator" : "medlem"}</p>
         <p><button type="submit">Gem</button></p>
       </form>
-    </div>`;
+    </div>
+    ${isAdmin() ? `
+    <div class="card">
+      <h2 style="margin-top:0">AI-hjælp (Anthropic)</h2>
+      <p class="small muted">Bruges til at foreslå rækkefølge og historier til en smagning. Nøglen gemmes i databasen, hvor kun administratorer kan læse den, og sendes direkte fra din browser til Anthropic. Opret en nøgle på console.anthropic.com.</p>
+      <form id="aikey">
+        <label>API-nøgle<input type="password" name="key" placeholder="sk-ant-…" autocomplete="off"></label>
+        <p id="aikey-status" class="small muted">Henter…</p>
+        <p><button type="submit">Gem nøgle</button> <button type="button" id="aikey-clear" class="danger">Fjern nøgle</button></p>
+      </form>
+    </div>` : ""}`;
+  if (isAdmin()) {
+    const $st = document.getElementById("aikey-status");
+    getDoc(doc(db, "settings", "ai")).then((d) => {
+      const k = d.exists() ? d.data().anthropicKey || "" : "";
+      $st.textContent = k ? `Der er gemt en nøgle (slutter på …${k.slice(-4)}).` : "Ingen nøgle gemt endnu.";
+    }).catch(showError);
+    document.getElementById("aikey").onsubmit = async (ev) => {
+      ev.preventDefault();
+      const key = ev.target.key.value.trim();
+      if (!key) return showError({ message: "Indsæt nøglen først." });
+      try { await setDoc(doc(db, "settings", "ai"), { anthropicKey: key }, { merge: true }); toast("Nøglen er gemt"); ev.target.key.value = ""; $st.textContent = `Der er gemt en nøgle (slutter på …${key.slice(-4)}).`; } catch (e) { showError(e); }
+    };
+    document.getElementById("aikey-clear").onclick = async () => {
+      try { await setDoc(doc(db, "settings", "ai"), { anthropicKey: "" }, { merge: true }); toast("Nøglen er fjernet"); $st.textContent = "Ingen nøgle gemt endnu."; } catch (e) { showError(e); }
+    };
+  }
   document.getElementById("profile").onsubmit = async (ev) => {
     ev.preventDefault();
     try {
@@ -563,11 +590,12 @@ function viewAdminTasting(tId) {
         rums.push({ id: d.id, ...d.data(), priv: p.exists() ? p.data() : {} });
       }
       const library = await loadLibrary();
-      draw(tasting, rums, library);
+      const planSnap = await getDoc(doc(db, "tastings", tId, "private", "plan"));
+      draw(tasting, rums, library, planSnap.exists() ? planSnap.data() : null);
     } catch (e) { showError(e); }
   }
 
-  function draw(tasting, rums, library) {
+  function draw(tasting, rums, library, plan) {
     const $a = document.getElementById("a");
     if (!$a) return;
     $a.innerHTML = `
@@ -584,6 +612,17 @@ function viewAdminTasting(tId) {
         <p class="muted small">Afsluttet: ingen kan længere tilmelde sig, og alle kan se afsløringen for alle romme.</p>
         <p><button type="submit">Gem smagning</button> <button type="button" id="delt" class="danger">Slet smagning</button></p>
       </form>
+
+      <h2>Værtens plan</h2>
+      <div class="card" id="plan">
+        <p class="small muted">Lad AI foreslå den rækkefølge, rommene bør smages i, og skrive en lille historie, du kan fortælle inden hver rom${tasting.blind ? " – uden at afsløre rommen, da smagningen er blind" : ""}.</p>
+        <p class="row">
+          <button type="button" id="genplan" ${rums.length < 2 ? "disabled" : ""}>Foreslå rækkefølge og historier</button>
+          ${plan ? `<a class="btn secondary" href="#/admin/smagning/${tId}/manuskript">Åbn manuskript</a><button type="button" id="applyorder" class="secondary">Anvend rækkefølgen</button>` : ""}
+        </p>
+        ${rums.length < 2 ? `<p class="small muted">Tilføj mindst to romme først.</p>` : ""}
+        ${plan ? planHtml(plan, rums) : ""}
+      </div>
 
       <h2>Romme (${rums.length})</h2>
       <div class="card">
@@ -616,6 +655,30 @@ function viewAdminTasting(tId) {
           </p>
         </form>`).join("")}`;
 
+    document.getElementById("genplan").onclick = async (ev) => {
+      const btn = ev.target;
+      btn.disabled = true; btn.textContent = "Tænker… (kan tage et halvt minut)";
+      try {
+        const result = await generatePlan(tasting, rums);
+        await setDoc(doc(db, "tastings", tId, "private", "plan"), result);
+        toast("Forslaget er klar");
+        load();
+      } catch (e) { showError(e); btn.disabled = false; btn.textContent = "Foreslå rækkefølge og historier"; }
+    };
+    const $apply = document.getElementById("applyorder");
+    if ($apply) $apply.onclick = async () => {
+      try {
+        let n = 0;
+        for (const item of plan.order) {
+          const r = rums.find((x) => x.id === item.rumId);
+          if (!r) continue;
+          n += 1;
+          await updateDoc(doc(db, "tastings", tId, "rums", r.id), { order: n, publicName: publicNameFor(tasting.blind, n, r.priv.name) });
+        }
+        toast("Rækkefølgen er anvendt");
+        load();
+      } catch (e) { showError(e); }
+    };
     document.getElementById("tform").onsubmit = async (ev) => {
       ev.preventDefault();
       const f = ev.target;
@@ -939,6 +1002,114 @@ function viewLibraryRum(id) {
           : `<p class="muted small">Ingen bedømmelser.</p>`}
         </div>`).join("")}`;
   }
+}
+
+// ---------- AI-hjælp: rækkefølge og historier (Anthropic Messages API direkte fra admins browser) ----------
+const AI_MODEL = "claude-opus-5";
+
+function planHtml(plan, rums) {
+  const nameOfRum = (id) => { const r = rums.find((x) => x.id === id); return r ? (r.priv.name || r.publicName) : "(rom fjernet)"; };
+  return `
+    ${plan.intro ? `<h3>Velkomst</h3><pre class="info">${esc(plan.intro)}</pre>` : ""}
+    <h3>Foreslået rækkefølge</h3>
+    <ol>${(plan.order || []).map((o) => `<li><strong>${esc(nameOfRum(o.rumId))}</strong>${o.why ? ` <span class="muted small">– ${esc(o.why)}</span>` : ""}
+      ${plan.stories?.[o.rumId] ? `<pre class="info small">${esc(plan.stories[o.rumId])}</pre>` : ""}</li>`).join("")}</ol>
+    <p class="muted small">Genereret ${plan.generatedAt ? new Date(plan.generatedAt).toLocaleString("da-DK") : ""} med ${esc(plan.model || "")}. Klik "Foreslå" igen for et nyt forslag.</p>`;
+}
+
+async function generatePlan(tasting, rums) {
+  const keyDoc = await getDoc(doc(db, "settings", "ai"));
+  const apiKey = keyDoc.exists() ? keyDoc.data().anthropicKey : "";
+  if (!apiKey) throw new Error("Der er ikke gemt nogen AI-nøgle. Gå til din profil og indsæt en Anthropic API-nøgle.");
+  const rumList = rums.map((r) => ({
+    rumId: r.id, nuvaerendeNr: r.order, navn: r.priv.name, destilleri: r.priv.distillery, land: r.priv.country,
+    alder: r.priv.age, alkoholProcent: r.priv.abv, type: r.priv.type, fad: r.priv.cask, pris: r.priv.price,
+    profil: r.priv.profile || {}, admin_noter: r.priv.adminNotes, info_fra_nettet: (r.priv.webInfo || "").slice(0, 1500),
+  }));
+  const blind = !!tasting.blind;
+  const system = `Du er en erfaren romkender og vært ved romsmagninger i en hyggelig dansk vennekreds. Du skriver på dansk, varmt og levende, uden at være højtravende.
+
+Du får en liste af romme til en smagning. Din opgave:
+1. Foreslå den rækkefølge rommene bør smages i, efter gængs praksis: lettere, yngre, lavere alkoholprocent og mildere stil før tungere, ældre, stærkere, mere fadpræget, røget eller "funky" stil, så ganen ikke bliver overdøvet. Agricole/sukkerrørssaft og melasse kan grupperes med omtanke. Begrund kort hvert valg.
+2. Skriv en kort velkomst (3-5 sætninger), som værten kan sige inden første rom.
+3. Skriv en lille historie pr. rom (70-130 ord), som værten fortæller inden rommen serveres. Byg på de oplysninger, du får (noter, profil, info fra nettet). Find ikke på konkrete fakta (årstal, priser, personer), som ikke er givet; brug hellere stemning, sanser og hvad gæsterne skal lægge mærke til.
+${blind ? `VIGTIGT: Smagningen er BLIND. Historierne og velkomsten må IKKE afsløre rommens navn, destilleri, land, region, alder, aldersangivelse, pris eller andet, der gør det muligt at gætte den. Skriv i stedet om stemning, hvad gæsterne skal lægge mærke til i duft, smag og eftersmag, og gerne et lille mysterium eller et spørgsmål, gæsterne kan gætte på. Omtal rommen som "denne rom" eller "rom nummer N".` : `Smagningen er ikke blind, så du må gerne bruge navn, destilleri, land og alder i historierne.`}
+
+Svar KUN med gyldig JSON uden anden tekst og uden markdown, i præcis denne form:
+{"intro": "velkomst", "order": [{"rumId": "id", "why": "kort begrundelse"}], "stories": {"id": "historie"}}
+Alle rumId'er fra listen skal med i "order" præcis én gang, og "stories" skal have en historie for hvert rumId.`;
+  const userMsg = `Smagning: ${tasting.title}${tasting.description ? "\nBeskrivelse: " + tasting.description : ""}\nBlind: ${blind ? "ja" : "nej"}\n\nRomme (JSON):\n${JSON.stringify(rumList, null, 1)}`;
+
+  const body = { model: AI_MODEL, max_tokens: 8000, system, messages: [{ role: "user", content: userMsg }] };
+  const headers = {
+    "content-type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01",
+    "anthropic-dangerous-direct-browser-access": "true",
+  };
+  // Server-side fallback: hvis modellen afviser, prøver Anthropic automatisk en anden model i samme kald.
+  let res = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST", headers: { ...headers, "anthropic-beta": "server-side-fallback-2026-07-01" }, body: JSON.stringify({ ...body, fallbacks: "default" }),
+  });
+  if (res.status === 400) {
+    // Ældre API-udgave uden fallback-parameteren: prøv igen uden
+    res = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers, body: JSON.stringify(body) });
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(`Anthropic svarede ${res.status}: ${data?.error?.message || res.statusText}`);
+  if (data.stop_reason === "refusal") throw new Error("AI'en afviste at svare på denne forespørgsel.");
+  const text = (data.content || []).filter((b) => b.type === "text").map((b) => b.text).join("\n");
+  const parsed = parseJsonLoose(text);
+  if (!parsed || !Array.isArray(parsed.order)) throw new Error("Kunne ikke læse AI'ens svar. Prøv igen.");
+  const ids = new Set(rums.map((r) => r.id));
+  const order = parsed.order.filter((o) => o && ids.has(o.rumId));
+  rums.forEach((r) => { if (!order.some((o) => o.rumId === r.id)) order.push({ rumId: r.id, why: "" }); });
+  return {
+    intro: String(parsed.intro || ""), order: order.map((o) => ({ rumId: o.rumId, why: String(o.why || "") })),
+    stories: Object.fromEntries(rums.map((r) => [r.id, String(parsed.stories?.[r.id] || "")])),
+    generatedAt: new Date().toISOString(), model: data.model || AI_MODEL, blind,
+  };
+}
+
+// Finder det første JSON-objekt i en tekst, også hvis modellen har pakket det ind i ```json
+function parseJsonLoose(text) {
+  try { return JSON.parse(text); } catch {}
+  const m = text.match(/\{[\s\S]*\}/);
+  if (!m) return null;
+  try { return JSON.parse(m[0]); } catch { return null; }
+}
+
+// Manuskript til værten: velkomst og historier i rækkefølge, stort og læsevenligt
+function viewScript(tId) {
+  $app.innerHTML = `<p><a href="#/admin/smagning/${tId}">← Til redigering</a></p><div id="error" class="error" hidden></div><div id="s"><p class="muted">Indlæser…</p></div>`;
+  (async () => {
+    const [ts, rs, ps] = await Promise.all([
+      getDoc(doc(db, "tastings", tId)),
+      getDocs(query(collection(db, "tastings", tId, "rums"), orderBy("order"))),
+      getDoc(doc(db, "tastings", tId, "private", "plan")),
+    ]);
+    const $s = document.getElementById("s");
+    if (!$s) return;
+    if (!ps.exists()) { $s.innerHTML = `<p class="notice">Der er ikke lavet et forslag endnu. Gå til redigering og klik "Foreslå rækkefølge og historier".</p>`; return; }
+    const plan = ps.data();
+    const rums = [];
+    for (const d of rs.docs) {
+      const p = await getDoc(doc(db, "tastings", tId, "rums", d.id, "private", "info"));
+      rums.push({ id: d.id, ...d.data(), priv: p.exists() ? p.data() : {} });
+    }
+    const t = ts.data() || {};
+    $s.innerHTML = `
+      <h1>Manuskript: ${esc(t.title || "")}</h1>
+      <p class="muted small">${plan.blind ? "Blindsmagning – historierne afslører ikke rommene." : ""} Rækkefølgen er forslagets; er den ikke anvendt, kan numrene afvige fra dem, gæsterne ser.</p>
+      ${plan.intro ? `<div class="card script"><h2 style="margin-top:0">Velkomst</h2><p>${esc(plan.intro).replace(/\n/g, "<br>")}</p></div>` : ""}
+      ${(plan.order || []).map((o, i) => {
+        const r = rums.find((x) => x.id === o.rumId);
+        if (!r) return "";
+        return `<div class="card script">
+          <h2 style="margin-top:0">${i + 1}. ${esc(r.priv.name || r.publicName)} <span class="muted small">(vises for gæsterne som ${esc(r.publicName)})</span></h2>
+          ${o.why ? `<p class="small muted">Hvorfor her: ${esc(o.why)}</p>` : ""}
+          <p>${esc(plan.stories?.[o.rumId] || "").replace(/\n/g, "<br>")}</p>
+        </div>`;
+      }).join("")}`;
+  })().catch(showError);
 }
 
 const emptyPriv = () => ({ name: "", distillery: "", country: "", age: "", abv: "", type: "", cask: "", price: "", adminNotes: "", webInfo: "" });
