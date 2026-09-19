@@ -28,11 +28,19 @@ const DIMS = [
   { key: "eftersmag", label: "Eftersmag (finish)", hint: "Længde, udvikling" },
   { key: "samlet",   label: "Samlet vurdering",   hint: "Din helhedsscore" },
 ];
-const TAGS = [
-  "Vanilje", "Karamel", "Toffee", "Eg/fad", "Tropisk frugt", "Banan", "Tørret frugt", "Rosin",
-  "Melasse", "Sukkerrør/græs", "Funk/hogo", "Krydderi", "Kanel", "Peber", "Tobak", "Læder",
-  "Chokolade", "Kaffe", "Røg", "Honning", "Citrus", "Nødder", "Sprit/skarp", "Sødet",
+// Administratorens smagsprofil for en rom: faste, gængse markeringer, så intet skal skrives ind hver gang.
+const PROFILE_GROUPS = [
+  { key: "duft", label: "Duft (næse)", hint: "intensitet og karakter", options: [
+    "Let", "Middel", "Kraftig", "Ren", "Sprittet", "Sød", "Tør", "Frugtig", "Krydret", "Træagtig", "Funky/estere", "Blomstret", "Røget", "Mørk (melasse)", "Lys (sukkerrør)",
+  ] },
+  { key: "smag", label: "Smag og mundfølelse", hint: "sødme, fylde, varme og eftersmag", options: [
+    "Tør", "Let sød", "Sød", "Meget sød", "Let krop", "Middel krop", "Fyldig", "Olieagtig", "Mild", "Varm", "Skarp", "Blød", "Balanceret", "Kompleks", "Enkel", "Bitter", "Tannin/eg", "Kort eftersmag", "Middel eftersmag", "Lang eftersmag",
+  ] },
+  { key: "aromaer", label: "Aromaer", hint: "det, du finder i duft og smag", options: [
+    "Vanilje", "Karamel", "Toffee", "Eg/fad", "Tropisk frugt", "Banan", "Ananas", "Kokos", "Tørret frugt", "Rosin", "Figen", "Æble/pære", "Citrus", "Melasse", "Sukkerrør/græs", "Funk/hogo", "Krydderi", "Kanel", "Nellike", "Peber", "Muskat", "Lakrids", "Tobak", "Læder", "Chokolade", "Kaffe", "Røg", "Honning", "Nødder", "Mint", "Blomster", "Sherry/vin", "Bourbon",
+  ] },
 ];
+const TAGS = PROFILE_GROUPS.find((g) => g.key === "aromaer").options;
 const RUM_TYPES = ["Melasse (pot still)", "Melasse (column still)", "Melasse (blend)", "Agricole (sukkerrørssaft)", "Cachaça", "Spiced/aromatiseret", "Andet/ukendt"];
 const STATUS = { tilmelding: "Åben for tilmelding", igang: "I gang", afsluttet: "Afsluttet" };
 const STATUS_CLASS = { tilmelding: "ok", igang: "warn", afsluttet: "muted" };
@@ -473,7 +481,8 @@ function viewRum(tId, rId) {
         <h2 style="margin-top:0">Afsløring: ${esc(priv.name || rum.publicName)}</h2>
         ${priv.imageData ? `<p><img class="rumimg" src="${priv.imageData}" alt="${esc(priv.name)}"></p>` : ""}
         ${facts.length ? `<table><tbody>${facts.map(([k, v]) => `<tr><th>${k}</th><td>${esc(v)}</td></tr>`).join("")}</tbody></table>` : ""}
-        ${priv.adminNotes ? `<h3>Administratorens noter</h3><pre class="info">${esc(priv.adminNotes)}</pre>` : `<p class="muted small">Administratoren har ikke skrevet noter til denne rom.</p>`}
+        ${profileHtml(priv.profile) ? `<h3>Administratorens smagsprofil</h3><table><tbody>${profileHtml(priv.profile)}</tbody></table>` : ""}
+        ${priv.adminNotes ? `<h3>Administratorens noter</h3><pre class="info">${esc(priv.adminNotes)}</pre>` : (profileHtml(priv.profile) ? "" : `<p class="muted small">Administratoren har ikke skrevet noter til denne rom.</p>`)}
         ${priv.webInfo ? `<details><summary>Fra nettet</summary><pre class="info">${esc(priv.webInfo)}</pre></details>` : ""}
       </div>`;
   }
@@ -691,7 +700,10 @@ function rumFieldsHtml(p) {
       <input type="hidden" name="imageData" value="${p.imageData || ""}">
       <div class="row"><input type="file" accept="image/*" class="imgfile" style="margin:0"><button type="button" class="small secondary imgclear" ${p.imageData ? "" : "hidden"}>Fjern billede</button></div>
     </div>
-    <label>Dine noter om rommen <span class="hint">(afsløres for deltageren efter egen bedømmelse)</span><textarea name="adminNotes">${esc(p.adminNotes)}</textarea></label>
+    ${PROFILE_GROUPS.map((g) => `
+      <label>${g.label} <span class="hint">(${g.hint} – kryds af)</span></label>
+      <div class="tags">${g.options.map((o) => { const on = (p.profile?.[g.key] || []).includes(o); return `<label class="${on ? "on" : ""}"><input type="checkbox" name="${g.key}" value="${esc(o)}" ${on ? "checked" : ""}>${esc(o)}</label>`; }).join("")}</div>`).join("")}
+    <label>Dine noter om rommen <span class="hint">(supplerende fritekst – afsløres for deltageren efter egen bedømmelse)</span><textarea name="adminNotes">${esc(p.adminNotes)}</textarea></label>
     <label>Info fra nettet <span class="hint">(hentes fra Wikipedia – ret gerne til)</span><textarea name="webInfo">${esc(p.webInfo)}</textarea></label>`;
 }
 const rumToolsHtml = () => `
@@ -705,8 +717,12 @@ function readRumFields(f) {
     name: f.name.value.trim(), distillery: f.distillery.value.trim(), country: f.country.value.trim(),
     age: f.age.value.trim(), abv: f.abv.value.trim(), type: f.type.value, cask: f.cask.value.trim(),
     price: f.price.value.trim(), adminNotes: f.adminNotes.value.trim(), webInfo: f.webInfo.value.trim(),
+    profile: Object.fromEntries(PROFILE_GROUPS.map((g) => [g.key, [...f.querySelectorAll(`input[name=${g.key}]:checked`)].map((c) => c.value)])),
   };
 }
+const profileHtml = (profile) => PROFILE_GROUPS
+  .filter((g) => (profile?.[g.key] || []).length)
+  .map((g) => `<tr><th>${g.label}</th><td>${profile[g.key].map(esc).join(", ")}</td></tr>`).join("");
 
 // Binder søgelinks, "hent info" og billedvalg på en romformular
 function bindRumForm(f) {
@@ -717,6 +733,7 @@ function bindRumForm(f) {
     rumx: () => `https://www.rum-x.com/search?q=${encodeURIComponent(q())}`,
   };
   f.querySelectorAll("[data-search]").forEach((a) => (a.onclick = () => { a.href = links[a.dataset.search](); }));
+  f.querySelectorAll(".tags input").forEach((cb) => (cb.onchange = () => cb.parentElement.classList.toggle("on", cb.checked)));
   const fw = f.querySelector(".fetchweb");
   if (fw) fw.onclick = async () => {
     if (!f.name.value.trim()) return showError({ message: "Skriv rommens navn først." });
