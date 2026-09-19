@@ -32,7 +32,7 @@ Live: <https://smagning.vejleaa.dk> (og <https://smagning-286ed.web.app>).
 
 | Sti | Indhold |
 |---|---|
-| `users/{uid}` | navn, e-mail, `role` (`medlem` eller `admin`) |
+| `users/{uid}` | navn, e-mail, `role` (`medlem` eller `admin`), `avatar` (`{type:'emoji', value}` eller `{type:'image', data}` – eget billede som lille JPEG data-URL) |
 | `tastings/{id}` | titel, dato, tid, beskrivelse, `status` (`tilmelding` / `igang` / `afsluttet`), `blind`, `participantIds[]` |
 | `settings/ai` | `anthropicKey`: admins Anthropic API-nøgle til AI-hjælpen – kun admin kan læse og skrive |
 | `tastings/{id}/private/plan` | AI-forslag: `intro`, `order[{rumId, why}]`, `stories{rumId}`, `generatedAt`, `model`, `blind` – kun admin |
@@ -41,7 +41,7 @@ Live: <https://smagning.vejleaa.dk> (og <https://smagning-286ed.web.app>).
 | `rumLibrary/{id}/media/image` | `data`: billedet som JPEG data-URL (max 800 px, skaleret i browseren) – kun admin |
 | `tastings/{id}/rums/{rumId}` | `order`, `status` (`aaben` / `lukket` = frigivet), `publicName` ("Rom nr. 1" ved blindsmagning), `libraryId`, `ratedBy[]` (uid'er der har bedømt; medlemmet skriver sig selv ind, reglerne kræver at bedømmelsen findes) |
 | `tastings/{id}/rums/{rumId}/private/info` | kopi af bibliotekets felter plus `imageData` – kan først læses når `ratedBy` dækker alle `participantIds`, når rommen er frigivet, eller når smagningen er afsluttet |
-| `tastings/{id}/ratings/{rumId}_{uid}` | `scores` pr. dimension, `tags`, `guess` (`{country, abv, name}` ved blindsmagning), `comment` – kan ikke ændres efter oprettelse |
+| `tastings/{id}/ratings/{rumId}_{uid}` | `scores` pr. dimension, `tags`, `guess` (`{country, abv, name}` ved blindsmagning), `comment` – ejeren kan rette den, indtil rommen er frigivet eller smagningen afsluttet |
 
 ### AI-hjælp: rækkefølge og historier
 
@@ -135,9 +135,10 @@ npm run test:e2e                  # i et andet vindue
 Appen bruger automatisk emulatorerne, når den åbnes fra `localhost` /
 `127.0.0.1` (se toppen af `public/app.js`). `tests/e2e.mjs` gennemgår hele
 forløbet med to brugere i browseren og efterprøver reglerne direkte via REST
-(64 tjek: installérbar app, rolle, bibliotek med billede, smagsprofil og egne ord, oprettelse, tilmelding, skjult
+(74 tjek: installérbar app, avatar, rolle, bibliotek med billede, smagsprofil og egne ord, oprettelse, tilmelding, skjult
 afsløring indtil alle har bedømt eller værten frigiver, afsløring med billede, låst bedømmelse,
-samlet vurdering, rangliste, afslutning, historik i biblioteket, AI-plan
+redigering af egen bedømmelse indtil frigivelse, samlet vurdering, rangliste,
+afslutning, historik i biblioteket, AI-plan
 med mocket API, anvendt rækkefølge og manuskript).
 
 ## Kendt gæld (bevidst udskudt for at nå første smagning)

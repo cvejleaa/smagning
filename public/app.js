@@ -74,6 +74,18 @@ const optionsFor = (key) => {
   const base = PROFILE_GROUPS.find((g) => g.key === key).options;
   return base.concat((extraOptions[key] || []).filter((o) => !base.includes(o)));
 };
+// Avatarer: rom-relaterede emojis. Brugeren kan også uploade sit eget billede.
+const AVATARS = [
+  ["🥃", "Romglas"], ["🍹", "Tiki-drink"], ["🍸", "Cocktail"], ["🍾", "Flaske"], ["🛢️", "Fad"], ["🍯", "Melasse"],
+  ["🏴‍☠️", "Sørøver"], ["🦜", "Papegøje"], ["⚓", "Anker"], ["🚢", "Skib"], ["🌴", "Palme"], ["🏝️", "Ø"],
+  ["🍌", "Banan"], ["🍍", "Ananas"], ["🥥", "Kokos"], ["🌶️", "Krydret"], ["🎩", "Gentleman"], ["🧔", "Ron Jeremy"],
+];
+const avatarHtml = (uid, cls = "") => {
+  const a = users[uid]?.avatar;
+  if (a?.type === "image" && a.data) return `<img class="avatar ${cls}" src="${a.data}" alt="">`;
+  if (a?.type === "emoji" && a.value) return `<span class="avatar ${cls}">${esc(a.value)}</span>`;
+  return `<span class="avatar ${cls} initial">${esc((users[uid]?.name || "?").trim().charAt(0).toUpperCase())}</span>`;
+};
 const RUM_TYPES = ["Melasse", "Agricole (sukkerrørssaft)", "Cachaça", "Spiced/aromatiseret", "Andet/ukendt"];
 const STATUS = { tilmelding: "Åben for tilmelding", igang: "I gang", afsluttet: "Afsluttet" };
 const STATUS_CLASS = { tilmelding: "ok", igang: "warn", afsluttet: "muted" };
@@ -173,7 +185,7 @@ function renderNav() {
   $nav.innerHTML = `
     <a href="#/">Smagninger</a>
     ${isAdmin() ? '<a href="#/bibliotek">Rombibliotek</a>' : ""}
-    <a href="#/profil">${esc(profile?.name || "Profil")}${isAdmin() ? " (admin)" : ""}</a>
+    <a href="#/profil" class="row" style="gap:6px">${avatarHtml(user.uid, "small")}${esc(profile?.name || "Profil")}${isAdmin() ? " (admin)" : ""}</a>
     <button id="logout" class="small">Log ud</button>`;
   document.getElementById("logout").onclick = () => signOut(auth);
 }
@@ -251,6 +263,17 @@ function viewProfile() {
       <form id="profile">
         <label>Navn<input type="text" name="name" value="${esc(profile?.name)}" required></label>
         <p class="muted small">E-mail: ${esc(user.email)} · Rolle: ${isAdmin() ? "administrator" : "medlem"}</p>
+        <label>Avatar <span class="hint">(vælg en, eller upload dit eget billede)</span></label>
+        <div class="avatars">
+          ${AVATARS.map(([v, l]) => `<label class="pick ${profile?.avatar?.type === "emoji" && profile.avatar.value === v ? "on" : ""}" title="${esc(l)}"><input type="radio" name="avatar" value="${esc(v)}" ${profile?.avatar?.type === "emoji" && profile.avatar.value === v ? "checked" : ""}><span class="avatar big">${v}</span><span class="small">${esc(l)}</span></label>`).join("")}
+          <label class="pick ${profile?.avatar?.type === "image" ? "on" : ""}" id="pick-image" title="Eget billede">
+            <input type="radio" name="avatar" value="__image__" ${profile?.avatar?.type === "image" ? "checked" : ""}>
+            ${profile?.avatar?.type === "image" ? `<img class="avatar big" id="avatar-preview" src="${profile.avatar.data}" alt="">` : `<span class="avatar big initial" id="avatar-preview">📷</span>`}
+            <span class="small">Eget billede</span>
+          </label>
+        </div>
+        <p class="row"><input type="file" accept="image/*" id="avatar-file" style="margin:0"><button type="button" id="avatar-clear" class="small secondary">Ingen avatar</button></p>
+        <input type="hidden" name="avatarImage" value="${profile?.avatar?.type === "image" ? profile.avatar.data : ""}">
         <p><button type="submit">Gem</button></p>
       </form>
     </div>
@@ -280,10 +303,32 @@ function viewProfile() {
       try { await setDoc(doc(db, "settings", "ai"), { anthropicKey: "" }, { merge: true }); toast("Nøglen er fjernet"); $st.textContent = "Ingen nøgle gemt endnu."; } catch (e) { showError(e); }
     };
   }
-  document.getElementById("profile").onsubmit = async (ev) => {
-    ev.preventDefault();
+  const pf = document.getElementById("profile");
+  pf.querySelectorAll(".avatars input[type=radio]").forEach((r) => (r.onchange = () => pf.querySelectorAll(".avatars .pick").forEach((l) => l.classList.toggle("on", l.querySelector("input").checked))));
+  document.getElementById("avatar-file").onchange = async (ev) => {
+    const fil = ev.target.files[0];
+    if (!fil) return;
     try {
-      await updateDoc(doc(db, "users", user.uid), { name: ev.target.name.value.trim() });
+      const data = await resizeImage(fil, 160, 0.85);
+      pf.avatarImage.value = data;
+      const holder = document.getElementById("pick-image");
+      holder.querySelector("#avatar-preview").outerHTML = `<img class="avatar big" id="avatar-preview" src="${data}" alt="">`;
+      holder.querySelector("input").checked = true;
+      pf.querySelectorAll(".avatars .pick").forEach((l) => l.classList.toggle("on", l.querySelector("input").checked));
+    } catch (e) { showError({ message: "Billedet kunne ikke læses: " + (e.message || e) }); }
+  };
+  document.getElementById("avatar-clear").onclick = () => {
+    pf.querySelectorAll(".avatars input[type=radio]").forEach((r) => (r.checked = false));
+    pf.querySelectorAll(".avatars .pick").forEach((l) => l.classList.remove("on"));
+  };
+  pf.onsubmit = async (ev) => {
+    ev.preventDefault();
+    const picked = pf.querySelector(".avatars input[type=radio]:checked")?.value || "";
+    let avatar = null;
+    if (picked === "__image__" && pf.avatarImage.value) avatar = { type: "image", data: pf.avatarImage.value };
+    else if (picked && picked !== "__image__") avatar = { type: "emoji", value: picked };
+    try {
+      await updateDoc(doc(db, "users", user.uid), { name: pf.name.value.trim(), avatar });
       toast("Profilen er gemt");
       go("#/");
     } catch (e) { showError(e); }
@@ -393,7 +438,7 @@ function viewTasting(tId) {
       <div class="card">
         <div class="row between">
           <div><strong>Deltagere (${parts.length})</strong><br>
-            <span class="small">${parts.map((u) => esc(nameOf(u))).join(", ") || "<span class='muted'>Ingen endnu</span>"}</span></div>
+            <span class="small">${parts.map((u) => `<span class="row" style="display:inline-flex;gap:4px;margin-right:8px">${avatarHtml(u, "small")}${esc(nameOf(u))}</span>`).join("") || "<span class='muted'>Ingen endnu</span>"}</span></div>
           ${canJoin ? `<button id="join" class="${joined ? "secondary" : ""}">${joined ? "Meld fra" : "Tilmeld mig"}</button>` : ""}
         </div>
       </div>
@@ -430,7 +475,7 @@ function viewTasting(tId) {
 
 // ---------- Rom: bedømmelse, afsløring, samlet vurdering ----------
 function viewRum(tId, rId) {
-  let tasting = null, rum = null, ratings = [], priv = null, privTried = false, formDrawn = false;
+  let tasting = null, rum = null, ratings = [], priv = null, privTried = false, formDrawn = false, editing = false;
   $app.innerHTML = `
     <p><a href="#/smagning/${tId}">← Tilbage til smagningen</a></p>
     <div id="error" class="error" hidden></div>
@@ -489,7 +534,8 @@ function viewRum(tId, rId) {
     const $f = document.getElementById("form");
     const parts = tasting.participantIds || [];
     const m = mine();
-    if (m) {
+    const canEdit = !!m && rum.status === "aaben" && tasting.status !== "afsluttet";
+    if (m && !editing) {
       formDrawn = false;
       $f.innerHTML = `
         <div class="card">
@@ -501,9 +547,13 @@ function viewRum(tId, rId) {
           ${(m.tags || []).length ? `<p class="small">Aromaer: ${m.tags.map(esc).join(", ")}</p>` : ""}
           ${guessParts(m.guess).length ? `<p class="small">Dit gæt: ${guessHtml(m.guess, priv)}</p>` : ""}
           ${m.comment ? `<p class="small">${esc(m.comment).replace(/\n/g, "<br>")}</p>` : ""}
+          ${canEdit ? `<p><button type="button" id="edit-rating" class="small secondary">Redigér bedømmelse</button> <span class="muted small">Kan rettes, indtil værten frigiver rommen.</span></p>` : `<p class="muted small">Bedømmelsen er låst, fordi rommen er frigivet${tasting.status === "afsluttet" ? " og smagningen afsluttet" : ""}.</p>`}
         </div>`;
+      const eb = document.getElementById("edit-rating");
+      if (eb) eb.onclick = () => { editing = true; formDrawn = false; drawForm(); };
       return;
     }
+    if (m && editing && !canEdit) { editing = false; return drawForm(); }
     if (!parts.includes(user.uid)) {
       $f.innerHTML = `<div class="notice">Du er ikke tilmeldt denne smagning. <a href="#/smagning/${tId}">Tilmeld dig her</a> for at kunne bedømme.</div>`;
       return;
@@ -514,27 +564,32 @@ function viewRum(tId, rId) {
     }
     if (formDrawn) return; // bevar det, brugeren er i gang med at skrive
     formDrawn = true;
+    const init = m ? m.scores || {} : {};
+    const sc = (k) => Number(init[k]) || 5;
+    const g = (m && m.guess && typeof m.guess === "object") ? m.guess : {};
     $f.innerHTML = `
       <form id="rate" class="card">
-        <h2 style="margin-top:0">Din bedømmelse</h2>
-        <p class="muted small">Giv 1–10 point pr. område. Når du gemmer, kan bedømmelsen ikke ændres. Rommens identitet, administratorens noter og den samlede vurdering vises, når alle har bedømt – eller når værten frigiver dem.</p>
-        <p class="small">Din vægtede score: <strong id="live-weighted">${fmt1(weighted({ udseende: 5, naese: 5, smag: 5, eftersmag: 5 }))}</strong> <span class="muted">(${WEIGHTS_TEXT})</span></p>
+        <h2 style="margin-top:0">${m ? "Redigér din bedømmelse" : "Din bedømmelse"}</h2>
+        <p class="muted small">Giv 1–10 point pr. område. Bedømmelsen kan rettes, indtil værten frigiver rommen. Rommens identitet, administratorens noter og den samlede vurdering vises, når alle har bedømt – eller når værten frigiver dem.</p>
+        <p class="small">Din vægtede score: <strong id="live-weighted">${fmt1(weighted({ udseende: sc("udseende"), naese: sc("naese"), smag: sc("smag"), eftersmag: sc("eftersmag") }))}</strong> <span class="muted">(${WEIGHTS_TEXT})</span></p>
         ${DIMS.map((d) => `
           <label>${d.label} <span class="hint">${d.hint}</span>
-            <div class="score-row"><input type="range" name="${d.key}" min="1" max="10" step="1" value="5" oninput="this.nextElementSibling.value=this.value"><output>5</output></div>
+            <div class="score-row"><input type="range" name="${d.key}" min="1" max="10" step="1" value="${sc(d.key)}" oninput="this.nextElementSibling.value=this.value"><output>${sc(d.key)}</output></div>
           </label>`).join("")}
         <label>Aromaer og smagsnoter <span class="hint">(vælg dem, du finder)</span></label>
-        <div class="tags">${optionsFor("aromaer").map((t) => `<label><input type="checkbox" name="tags" value="${esc(t)}">${esc(t)}</label>`).join("")}</div>
+        <div class="tags">${optionsFor("aromaer").map((t) => { const on = (m?.tags || []).includes(t); return `<label class="${on ? "on" : ""}"><input type="checkbox" name="tags" value="${esc(t)}" ${on ? "checked" : ""}>${esc(t)}</label>`; }).join("")}</div>
         ${tasting.blind ? `
         <label>Dit gæt <span class="hint">(valgfrit – afsløres sammen med rommen)</span></label>
         <div class="grid3">
-          <label class="sub">Land<input type="text" name="guessCountry" placeholder="Fx Jamaica"></label>
-          <label class="sub">Alkohol %<input type="text" name="guessAbv" inputmode="decimal" placeholder="Fx 43"></label>
-          <label class="sub">Navn / destilleri<input type="text" name="guessName" placeholder="Fx Appleton"></label>
+          <label class="sub">Land<input type="text" name="guessCountry" value="${esc(g.country)}" placeholder="Fx Jamaica"></label>
+          <label class="sub">Alkohol %<input type="text" name="guessAbv" value="${esc(g.abv)}" inputmode="decimal" placeholder="Fx 43"></label>
+          <label class="sub">Navn / destilleri<input type="text" name="guessName" value="${esc(g.name)}" placeholder="Fx Appleton"></label>
         </div>` : ""}
-        <label>Kommentar <span class="hint">(valgfri)</span><textarea name="comment"></textarea></label>
-        <p><button type="submit">Gem bedømmelse</button></p>
+        <label>Kommentar <span class="hint">(valgfri)</span><textarea name="comment">${esc(m?.comment)}</textarea></label>
+        <p><button type="submit">${m ? "Gem ændringer" : "Gem bedømmelse"}</button>${m ? ` <button type="button" id="cancel-edit" class="secondary">Fortryd</button>` : ""}</p>
       </form>`;
+    const ce = document.getElementById("cancel-edit");
+    if (ce) ce.onclick = () => { editing = false; formDrawn = false; drawForm(); };
     $f.querySelectorAll(".tags input").forEach((cb) => (cb.onchange = () => cb.parentElement.classList.toggle("on", cb.checked)));
     const rateForm = document.getElementById("rate");
     rateForm.addEventListener("input", () => {
@@ -550,15 +605,18 @@ function viewRum(tId, rId) {
       DIMS.forEach((d) => (scores[d.key] = Number(f[d.key].value)));
       const tags = [...f.querySelectorAll(".tags input:checked")].map((c) => c.value);
       try {
+        const wasEdit = !!mine();
         await setDoc(doc(db, "tastings", tId, "ratings", `${rId}_${user.uid}`), {
           uid: user.uid, rumId: rId, scores, tags,
           guess: f.guessCountry ? { country: f.guessCountry.value.trim(), abv: f.guessAbv.value.trim(), name: f.guessName.value.trim() } : null,
           comment: f.comment.value.trim(),
-          createdAt: serverTimestamp(),
+          createdAt: wasEdit ? (mine().createdAt || serverTimestamp()) : serverTimestamp(),
+          updatedAt: serverTimestamp(),
         });
+        editing = false; formDrawn = false;
         // Markér at man har bedømt (bruges af reglerne til at afgøre, om alle er færdige)
         await updateDoc(doc(db, "tastings", tId, "rums", rId), { ratedBy: arrayUnion(user.uid) });
-        toast("Din bedømmelse er gemt");
+        toast(wasEdit ? "Din bedømmelse er opdateret" : "Din bedømmelse er gemt");
       } catch (e) { btn.disabled = false; showError(e); }
     };
   }
@@ -626,7 +684,7 @@ function viewRum(tId, rId) {
         ${topTags.length ? `<p class="small">Mest fundne aromaer: ${topTags.map(([t, c]) => `${esc(t)} (${c})`).join(", ")}</p>` : ""}
         <h3>Deltagernes bedømmelser</h3>
         <table><thead><tr><th>Deltager</th>${DIMS.filter((d) => d.key !== "samlet").map((d) => `<th class="num">${d.label.split(" ")[0]}</th>`).join("")}<th class="num">Vægtet</th><th class="num muted">Egen</th>${isAdmin() ? "<th></th>" : ""}</tr></thead>
-        <tbody>${sorted.map((r) => `<tr><td>${esc(nameOf(r.uid))}${guessParts(r.guess).length ? `<br><span class="muted small">Gæt – ${guessHtml(r.guess, priv)}</span>` : ""}${r.comment ? `<br><span class="small">${esc(r.comment)}</span>` : ""}</td>
+        <tbody>${sorted.map((r) => `<tr><td><span class="row" style="display:inline-flex;gap:6px">${avatarHtml(r.uid, "small")}${esc(nameOf(r.uid))}</span>${guessParts(r.guess).length ? `<br><span class="muted small">Gæt – ${guessHtml(r.guess, priv)}</span>` : ""}${r.comment ? `<br><span class="small">${esc(r.comment)}</span>` : ""}</td>
           ${DIMS.filter((d) => d.key !== "samlet").map((d) => `<td class="num">${esc(r.scores?.[d.key])}</td>`).join("")}
           <td class="num"><strong>${fmt1(weighted(r.scores))}</strong></td><td class="num muted">${esc(r.scores?.samlet)}</td>
           ${isAdmin() ? `<td><button class="small danger" data-del="${r.id}" title="Slet bedømmelsen, så deltageren kan bedømme igen">Slet</button></td>` : ""}</tr>`).join("")}</tbody></table>
@@ -1067,7 +1125,7 @@ function viewLibraryRum(id) {
           ${ratings.length ? `
             <p><strong>${fmt1(avgWeighted(ratings))}</strong> / 10 vægtet · ${ratings.length} bedømmelser · ${DIMS.filter((d) => d.key !== "samlet").map((d) => `${d.label.split(" ")[0]} ${fmt1(avgOf(ratings, d.key))}`).join(" · ")}</p>
             ${tagsOf(ratings).length ? `<p class="small">Aromaer: ${tagsOf(ratings).map(([tg, c]) => `${esc(tg)} (${c})`).join(", ")}</p>` : ""}
-            <table><tbody>${ratings.map((r) => `<tr><td>${esc(nameOf(r.uid))}${guessParts(r.guess).length ? ` <span class="muted small">(gæt – ${guessHtml(r.guess, info)})</span>` : ""}${r.comment ? `<br><span class="small">${esc(r.comment)}</span>` : ""}</td><td class="num"><strong>${fmt1(weighted(r.scores))}</strong> <span class="muted small">(egen: ${esc(r.scores?.samlet)})</span></td></tr>`).join("")}</tbody></table>`
+            <table><tbody>${ratings.map((r) => `<tr><td><span class="row" style="display:inline-flex;gap:6px">${avatarHtml(r.uid, "small")}${esc(nameOf(r.uid))}</span>${guessParts(r.guess).length ? ` <span class="muted small">(gæt – ${guessHtml(r.guess, info)})</span>` : ""}${r.comment ? `<br><span class="small">${esc(r.comment)}</span>` : ""}</td><td class="num"><strong>${fmt1(weighted(r.scores))}</strong> <span class="muted small">(egen: ${esc(r.scores?.samlet)})</span></td></tr>`).join("")}</tbody></table>`
           : `<p class="muted small">Ingen bedømmelser.</p>`}
         </div>`).join("")}`;
   }
