@@ -41,7 +41,7 @@ const PROFILE_GROUPS = [
   ] },
 ];
 const TAGS = PROFILE_GROUPS.find((g) => g.key === "aromaer").options;
-const RUM_TYPES = ["Melasse (pot still)", "Melasse (column still)", "Melasse (blend)", "Agricole (sukkerrørssaft)", "Cachaça", "Spiced/aromatiseret", "Andet/ukendt"];
+const RUM_TYPES = ["Melasse", "Agricole (sukkerrørssaft)", "Cachaça", "Spiced/aromatiseret", "Andet/ukendt"];
 const STATUS = { tilmelding: "Åben for tilmelding", igang: "I gang", afsluttet: "Afsluttet" };
 const STATUS_CLASS = { tilmelding: "ok", igang: "warn", afsluttet: "muted" };
 const AUTH_ERRORS = {
