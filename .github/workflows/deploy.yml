@@ -36,6 +36,25 @@ jobs:
         env:
           KEY: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
 
+      - name: Diagnose af nøgle og rettigheder
+        if: env.HAS_KEY == 'true'
+        run: |
+          EMAIL=$(jq -r .client_email "$RUNNER_TEMP/sa.json")
+          PROJ=$(jq -r .project_id "$RUNNER_TEMP/sa.json")
+          echo "Nøglen tilhører: $EMAIL (oprettet i projekt: $PROJ)"
+          gcloud auth activate-service-account --key-file "$RUNNER_TEMP/sa.json" --quiet
+          echo "--- Roller for kontoen i projektet smagning-286ed ---"
+          gcloud projects get-iam-policy smagning-286ed --flatten="bindings[].members" \
+            --filter="bindings.members:serviceAccount:$EMAIL" --format="value(bindings.role)" \
+            || echo "(kunne ikke læse IAM-politikken – kontoen mangler formentlig projektroller helt)"
+          echo "--- Er Firebase Rules API slået til? ---"
+          gcloud services list --enabled --project smagning-286ed --filter="config.name:firebaserules.googleapis.com" --format="value(config.name)" \
+            || echo "(kunne ikke læse API-listen)"
+          echo "--- Firebase-projekter kontoen kan se ---"
+          npx --yes firebase-tools@13 projects:list --non-interactive || true
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/sa.json
+
       - name: Deploy hosting og Firestore-regler
         if: env.HAS_KEY == 'true'
         run: npx --yes firebase-tools@13 deploy --only hosting,firestore:rules,firestore:indexes --project smagning-286ed --non-interactive --force
