@@ -124,5 +124,6 @@ label.sub { margin-top: 4px; font-weight: 500; font-size: 0.9rem; }
 }
 /* Tabellen må være bredere end boksen (boksen ruller) – kolonnerne klemmes ikke */
 .table-wrap table { width: max-content; min-width: 100%; }
-.table-wrap td:first-child, .table-wrap th:first-child { min-width: 150px; max-width: 260px; }
+.rating-row { border-top: 1px solid var(--line); padding: 8px 0; }
+.rating-row > div + div { margin-top: 2px; }
 .table-wrap td.num, .table-wrap th.num { white-space: nowrap; }

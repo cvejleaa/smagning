@@ -689,11 +689,17 @@ function viewRum(tId, rId) {
         <p class="muted small">${WEIGHTS_TEXT}</p>
         ${topTags.length ? `<p class="small">Mest fundne aromaer: ${topTags.map(([t, c]) => `${esc(t)} (${c})`).join(", ")}</p>` : ""}
         <h3>Deltagernes bedømmelser</h3>
-        <div class="table-wrap"><table><thead><tr><th>Deltager</th>${DIMS.filter((d) => d.key !== "samlet").map((d) => `<th class="num">${d.label.split(" ")[0]}</th>`).join("")}<th class="num">Vægtet</th><th class="num muted">Egen</th>${isAdmin() ? "<th></th>" : ""}</tr></thead>
-        <tbody>${sorted.map((r) => `<tr><td><span class="row" style="display:inline-flex;gap:6px">${avatarHtml(r.uid, "small")}${esc(nameOf(r.uid))}</span>${guessParts(r.guess).length ? `<br><span class="muted small">Gæt – ${guessHtml(r.guess, priv)}</span>` : ""}${r.comment ? `<br><span class="small">${esc(r.comment)}</span>` : ""}</td>
-          ${DIMS.filter((d) => d.key !== "samlet").map((d) => `<td class="num">${esc(r.scores?.[d.key])}</td>`).join("")}
-          <td class="num"><strong>${fmt1(weighted(r.scores))}</strong></td><td class="num muted">${esc(r.scores?.samlet)}</td>
-          ${isAdmin() ? `<td><button class="small danger" data-del="${r.id}" title="Slet bedømmelsen, så deltageren kan bedømme igen">Slet</button></td>` : ""}</tr>`).join("")}</tbody></table></div>
+        ${sorted.map((r) => `
+          <div class="rating-row">
+            <div class="row between">
+              <span class="row" style="gap:6px">${avatarHtml(r.uid, "small")}<strong>${esc(nameOf(r.uid))}</strong></span>
+              <span class="row" style="gap:8px"><strong>${fmt1(weighted(r.scores))}</strong><span class="muted small">egen ${esc(r.scores?.samlet)}</span>${isAdmin() ? `<button class="small danger" data-del="${r.id}" title="Slet bedømmelsen, så deltageren kan bedømme igen">Slet</button>` : ""}</span>
+            </div>
+            <div class="small muted">${DIMS.filter((d) => d.key !== "samlet").map((d) => `${d.label.split(" ")[0]} ${esc(r.scores?.[d.key])}`).join(" · ")}</div>
+            ${(r.tags || []).length ? `<div class="small muted">Aromaer: ${r.tags.map(esc).join(", ")}</div>` : ""}
+            ${guessParts(r.guess).length ? `<div class="small muted">Gæt – ${guessHtml(r.guess, priv)}</div>` : ""}
+            ${r.comment ? `<div class="small">${esc(r.comment).replace(/\n/g, "<br>")}</div>` : ""}
+          </div>`).join("")}
       </div>`;
     $a.querySelectorAll("[data-del]").forEach((b) => (b.onclick = async () => {
       if (!confirm("Slet denne bedømmelse? Deltageren kan så bedømme igen.")) return;
@@ -1131,7 +1137,12 @@ function viewLibraryRum(id) {
           ${ratings.length ? `
             <p><strong>${fmt1(avgWeighted(ratings))}</strong> / 10 vægtet · ${ratings.length} bedømmelser · ${DIMS.filter((d) => d.key !== "samlet").map((d) => `${d.label.split(" ")[0]} ${fmt1(avgOf(ratings, d.key))}`).join(" · ")}</p>
             ${tagsOf(ratings).length ? `<p class="small">Aromaer: ${tagsOf(ratings).map(([tg, c]) => `${esc(tg)} (${c})`).join(", ")}</p>` : ""}
-            <div class="table-wrap"><table><tbody>${ratings.map((r) => `<tr><td><span class="row" style="display:inline-flex;gap:6px">${avatarHtml(r.uid, "small")}${esc(nameOf(r.uid))}</span>${guessParts(r.guess).length ? ` <span class="muted small">(gæt – ${guessHtml(r.guess, info)})</span>` : ""}${r.comment ? `<br><span class="small">${esc(r.comment)}</span>` : ""}</td><td class="num"><strong>${fmt1(weighted(r.scores))}</strong> <span class="muted small">(egen: ${esc(r.scores?.samlet)})</span></td></tr>`).join("")}</tbody></table></div>`
+            ${ratings.map((r) => `<div class="rating-row">
+              <div class="row between"><span class="row" style="gap:6px">${avatarHtml(r.uid, "small")}<strong>${esc(nameOf(r.uid))}</strong></span><span><strong>${fmt1(weighted(r.scores))}</strong> <span class="muted small">egen ${esc(r.scores?.samlet)}</span></span></div>
+              <div class="small muted">${DIMS.filter((d) => d.key !== "samlet").map((d) => `${d.label.split(" ")[0]} ${esc(r.scores?.[d.key])}`).join(" · ")}</div>
+              ${guessParts(r.guess).length ? `<div class="small muted">Gæt – ${guessHtml(r.guess, info)}</div>` : ""}
+              ${r.comment ? `<div class="small">${esc(r.comment).replace(/\n/g, "<br>")}</div>` : ""}
+            </div>`).join("")}`
           : `<p class="muted small">Ingen bedømmelser.</p>`}
         </div>`).join("")}`;
   }
