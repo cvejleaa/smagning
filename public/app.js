@@ -84,6 +84,15 @@ function fmtDate(d, t) {
   const s = new Date(y, m - 1, day).toLocaleDateString("da-DK", { weekday: "short", day: "numeric", month: "long", year: "numeric" });
   return t ? `${s} kl. ${t}` : s;
 }
+// Kort bekræftelse nederst på skærmen (fx "Gemt")
+function toast(msg) {
+  let el = document.getElementById("toast");
+  if (!el) { el = document.createElement("div"); el.id = "toast"; document.body.appendChild(el); }
+  el.textContent = msg;
+  el.classList.add("show");
+  clearTimeout(toast.timer);
+  toast.timer = setTimeout(() => el.classList.remove("show"), 2500);
+}
 function showError(err) {
   console.error(err);
   const msg = AUTH_ERRORS[err?.code] || (err?.code === "permission-denied" ? "Du har ikke adgang til at gøre det." : err?.message || String(err));
@@ -220,6 +229,7 @@ function viewProfile() {
     ev.preventDefault();
     try {
       await updateDoc(doc(db, "users", user.uid), { name: ev.target.name.value.trim() });
+      toast("Profilen er gemt");
       go("#/");
     } catch (e) { showError(e); }
   };
@@ -470,6 +480,7 @@ function viewRum(tId, rId) {
           guess: f.guess ? f.guess.value.trim() : "", comment: f.comment.value.trim(),
           createdAt: serverTimestamp(),
         });
+        toast("Din bedømmelse er gemt");
       } catch (e) { btn.disabled = false; showError(e); }
     };
   }
@@ -618,6 +629,7 @@ function viewAdminTasting(tId) {
         for (const r of rums) {
           await updateDoc(doc(db, "tastings", tId, "rums", r.id), { publicName: publicNameFor(blind, r.order, r.priv.name) });
         }
+        toast("Smagningen er gemt");
         load();
       } catch (e) { showError(e); }
     };
@@ -643,6 +655,7 @@ function viewAdminTasting(tId) {
         const priv = emptyPriv();
         const libraryId = await saveLibraryRum(null, priv, "");
         await addRumToTasting(libraryId, priv);
+        toast("Ny rom tilføjet nederst");
         load();
       } catch (e) { showError(e); }
     };
@@ -653,6 +666,7 @@ function viewAdminTasting(tId) {
       try {
         const { info, imageData } = await loadLibraryRum(libraryId);
         await addRumToTasting(libraryId, { ...info, imageData });
+        toast(`${info.name || "Rommen"} er tilføjet til smagningen`);
         load();
       } catch (e) { showError(e); }
     };
@@ -662,7 +676,7 @@ function viewAdminTasting(tId) {
       bindRumForm(f);
       f.onsubmit = async (ev) => {
         ev.preventDefault();
-        try { await saveRum(id, rum.libraryId, f, tasting.blind); load(); } catch (e) { showError(e); }
+        try { await saveRum(id, rum.libraryId, f, tasting.blind); toast("Rommen er gemt"); load(); } catch (e) { showError(e); }
       };
       f.querySelector(".delrum").onclick = async () => {
         if (!confirm("Fjern rommen fra smagningen og slet dens bedømmelser? (Den bliver i biblioteket.)")) return;
@@ -882,7 +896,7 @@ function viewLibraryRum(id) {
     bindRumForm(f);
     f.onsubmit = async (ev) => {
       ev.preventDefault();
-      try { await saveLibraryRum(id, readRumFields(f), f.imageData.value); go("#/bibliotek"); } catch (e) { showError(e); }
+      try { await saveLibraryRum(id, readRumFields(f), f.imageData.value); toast("Rommen er gemt i biblioteket"); go("#/bibliotek"); } catch (e) { showError(e); }
     };
     document.getElementById("dellib").onclick = async () => {
       if (!confirm("Slet rommen fra biblioteket? Smagninger, den har været med i, beholder deres kopi.")) return;
