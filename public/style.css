@@ -122,3 +122,7 @@ label.sub { margin-top: 4px; font-weight: 500; font-size: 0.9rem; }
   button.small { padding: 3px 8px; font-size: 0.85rem; }
   main { padding: 12px; }
 }
+/* Tabellen må være bredere end boksen (boksen ruller) – kolonnerne klemmes ikke */
+.table-wrap table { width: max-content; min-width: 100%; }
+.table-wrap td:first-child, .table-wrap th:first-child { min-width: 150px; max-width: 260px; }
+.table-wrap td.num, .table-wrap th.num { white-space: nowrap; }
