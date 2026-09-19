@@ -37,10 +37,15 @@ const PROFILE_GROUPS = [
     "Tør", "Let sød", "Sød", "Meget sød", "Let krop", "Middel krop", "Fyldig", "Olieagtig", "Mild", "Varm", "Skarp", "Blød", "Balanceret", "Kompleks", "Enkel", "Bitter", "Tannin/eg", "Kort eftersmag", "Middel eftersmag", "Lang eftersmag",
   ] },
   { key: "aromaer", label: "Aromaer", hint: "det, du finder i duft og smag", options: [
-    "Vanilje", "Karamel", "Toffee", "Eg/fad", "Tropisk frugt", "Banan", "Ananas", "Kokos", "Tørret frugt", "Rosin", "Figen", "Æble/pære", "Citrus", "Melasse", "Sukkerrør/græs", "Funk/hogo", "Krydderi", "Kanel", "Nellike", "Peber", "Muskat", "Lakrids", "Tobak", "Læder", "Chokolade", "Kaffe", "Røg", "Honning", "Nødder", "Mint", "Blomster", "Sherry/vin", "Bourbon",
+    "Vanilje", "Karamel", "Toffee", "Eg/fad", "Tropisk frugt", "Banan", "Ananas", "Kokos", "Tørret frugt", "Rosin", "Figen", "Æble/pære", "Citrus", "Melasse", "Sukkerrør/græs", "Funk/hogo", "Krydderi", "Kanel", "Nellike", "Peber", "Muskat", "Lakrids", "Tobak", "Læder", "Chokolade", "Kaffe", "Røg", "Honning", "Nødder", "Mandler", "Brun farin", "Mint", "Blomster", "Sherry/vin", "Bourbon",
   ] },
 ];
-const TAGS = PROFILE_GROUPS.find((g) => g.key === "aromaer").options;
+// Admins egne ord (settings/profileOptions) lægges oven i de faste lister
+let extraOptions = { duft: [], smag: [], aromaer: [] };
+const optionsFor = (key) => {
+  const base = PROFILE_GROUPS.find((g) => g.key === key).options;
+  return base.concat((extraOptions[key] || []).filter((o) => !base.includes(o)));
+};
 const RUM_TYPES = ["Melasse", "Agricole (sukkerrørssaft)", "Cachaça", "Spiced/aromatiseret", "Andet/ukendt"];
 const STATUS = { tilmelding: "Åben for tilmelding", igang: "I gang", afsluttet: "Afsluttet" };
 const STATUS_CLASS = { tilmelding: "ok", igang: "warn", afsluttet: "muted" };
@@ -64,6 +69,7 @@ let pendingName = null; // navn fra oprettelsesformularen, bruges når profilen 
 let users = {};         // uid -> {name, email, role}
 let unsubs = [];        // snapshot-lyttere for den aktuelle side
 let usersUnsub = null;
+let optionsUnsub = null;
 
 const listen = (u) => unsubs.push(u);
 const stopListeners = () => { unsubs.forEach((u) => u()); unsubs = []; };
@@ -89,9 +95,13 @@ function showError(err) {
 onAuthStateChanged(auth, async (u) => {
   user = u;
   if (usersUnsub) { usersUnsub(); usersUnsub = null; }
+  if (optionsUnsub) { optionsUnsub(); optionsUnsub = null; }
   if (u) {
     try {
       profile = await ensureProfile(u);
+      optionsUnsub = onSnapshot(doc(db, "settings", "profileOptions"), (s) => {
+        extraOptions = { duft: [], smag: [], aromaer: [], ...(s.exists() ? s.data() : {}) };
+      });
       usersUnsub = onSnapshot(collection(db, "users"), (snap) => {
         users = {};
         snap.forEach((d) => (users[d.id] = d.data()));
@@ -440,7 +450,7 @@ function viewRum(tId, rId) {
             <div class="score-row"><input type="range" name="${d.key}" min="1" max="10" step="1" value="5" oninput="this.nextElementSibling.value=this.value"><output>5</output></div>
           </label>`).join("")}
         <label>Aromaer og smagsnoter <span class="hint">(vælg dem, du finder)</span></label>
-        <div class="tags">${TAGS.map((t) => `<label><input type="checkbox" name="tags" value="${esc(t)}">${esc(t)}</label>`).join("")}</div>
+        <div class="tags">${optionsFor("aromaer").map((t) => `<label><input type="checkbox" name="tags" value="${esc(t)}">${esc(t)}</label>`).join("")}</div>
         ${tasting.blind ? `<label>Dit gæt <span class="hint">(fx land, alder, type – valgfrit)</span><input type="text" name="guess" placeholder="Fx Jamaica, 12 år, pot still"></label>` : ""}
         <label>Kommentar <span class="hint">(valgfri)</span><textarea name="comment"></textarea></label>
         <p><button type="submit">Gem bedømmelse</button></p>
@@ -700,12 +710,18 @@ function rumFieldsHtml(p) {
       <input type="hidden" name="imageData" value="${p.imageData || ""}">
       <div class="row"><input type="file" accept="image/*" class="imgfile" style="margin:0"><button type="button" class="small secondary imgclear" ${p.imageData ? "" : "hidden"}>Fjern billede</button></div>
     </div>
-    ${PROFILE_GROUPS.map((g) => `
+    ${PROFILE_GROUPS.map((g) => {
+      const chosen = p.profile?.[g.key] || [];
+      const opts = optionsFor(g.key).concat(chosen.filter((o) => !optionsFor(g.key).includes(o)));
+      return `
       <label>${g.label} <span class="hint">(${g.hint} – kryds af)</span></label>
-      <div class="tags">${g.options.map((o) => { const on = (p.profile?.[g.key] || []).includes(o); return `<label class="${on ? "on" : ""}"><input type="checkbox" name="${g.key}" value="${esc(o)}" ${on ? "checked" : ""}>${esc(o)}</label>`; }).join("")}</div>`).join("")}
+      <div class="tags" data-group="${g.key}">${opts.map((o) => tagLabelHtml(g.key, o, chosen.includes(o))).join("")}</div>
+      <div class="row addword"><input type="text" class="addword-input" data-group="${g.key}" placeholder="Tilføj eget ord til listen…" style="flex:1;margin:0"><button type="button" class="small secondary addword-btn" data-group="${g.key}">Tilføj</button></div>`;
+    }).join("")}
     <label>Dine noter om rommen <span class="hint">(supplerende fritekst – afsløres for deltageren efter egen bedømmelse)</span><textarea name="adminNotes">${esc(p.adminNotes)}</textarea></label>
     <label>Info fra nettet <span class="hint">(hentes fra Wikipedia – ret gerne til)</span><textarea name="webInfo">${esc(p.webInfo)}</textarea></label>`;
 }
+const tagLabelHtml = (key, o, on) => `<label class="${on ? "on" : ""}"><input type="checkbox" name="${key}" value="${esc(o)}" ${on ? "checked" : ""}>${esc(o)}</label>`;
 const rumToolsHtml = () => `
     <button type="button" class="secondary fetchweb">Hent info fra nettet</button>
     <a class="btn secondary" target="_blank" rel="noopener" data-search="google">Google</a>
@@ -733,7 +749,27 @@ function bindRumForm(f) {
     rumx: () => `https://www.rum-x.com/search?q=${encodeURIComponent(q())}`,
   };
   f.querySelectorAll("[data-search]").forEach((a) => (a.onclick = () => { a.href = links[a.dataset.search](); }));
-  f.querySelectorAll(".tags input").forEach((cb) => (cb.onchange = () => cb.parentElement.classList.toggle("on", cb.checked)));
+  const bindToggle = (cb) => (cb.onchange = () => cb.parentElement.classList.toggle("on", cb.checked));
+  f.querySelectorAll(".tags input").forEach(bindToggle);
+  // Egne ord: gemmes i settings/profileOptions og krydses af med det samme
+  f.querySelectorAll(".addword-btn").forEach((btn) => {
+    const key = btn.dataset.group;
+    const input = f.querySelector(`.addword-input[data-group=${key}]`);
+    input.onkeydown = (ev) => { if (ev.key === "Enter") { ev.preventDefault(); btn.click(); } };
+    btn.onclick = async () => {
+      const word = input.value.trim();
+      if (!word) return;
+      const box = f.querySelector(`.tags[data-group=${key}]`);
+      const existing = [...box.querySelectorAll("input")].find((c) => c.value.toLowerCase() === word.toLowerCase());
+      if (existing) { existing.checked = true; existing.parentElement.classList.add("on"); input.value = ""; return; }
+      try {
+        await setDoc(doc(db, "settings", "profileOptions"), { [key]: arrayUnion(word) }, { merge: true });
+        box.insertAdjacentHTML("beforeend", tagLabelHtml(key, word, true));
+        bindToggle(box.lastElementChild.querySelector("input"));
+        input.value = "";
+      } catch (e) { showError(e); }
+    };
+  });
   const fw = f.querySelector(".fetchweb");
   if (fw) fw.onclick = async () => {
     if (!f.name.value.trim()) return showError({ message: "Skriv rommens navn først." });
@@ -795,7 +831,23 @@ function viewLibrary() {
     <div class="row between"><h1>Rombibliotek</h1><button id="newlib">+ Ny rom</button></div>
     <p class="muted">Alle romme, der har været – eller skal – med i en smagning. Klik på en rom for at se og rette oplysninger og se resultater fra tidligere smagninger.</p>
     <div id="error" class="error" hidden></div>
-    <div id="list"><p class="muted">Indlæser…</p></div>`;
+    <div id="list"><p class="muted">Indlæser…</p></div>
+    <h2>Egne ord i listerne</h2>
+    <div class="card" id="words"></div>`;
+  const drawWords = () => {
+    const $w = document.getElementById("words");
+    if (!$w) return;
+    const any = PROFILE_GROUPS.some((g) => (extraOptions[g.key] || []).length);
+    $w.innerHTML = `<p class="muted small">Ord, du selv har tilføjet i romformularen. De faste ord kan ikke fjernes. Fjernes et ord, bliver det stående på de romme, der allerede har det.</p>` +
+      (any ? PROFILE_GROUPS.map((g) => (extraOptions[g.key] || []).length ? `<p><strong>${g.label}:</strong></p><div class="tags">${extraOptions[g.key].map((o) => `<label class="on" title="Klik for at fjerne">${esc(o)} ✕<input type="checkbox" data-remove="${g.key}" value="${esc(o)}"></label>`).join("")}</div>` : "").join("")
+          : `<p class="muted">Ingen egne ord endnu. Skriv et ord i "Tilføj eget ord" under en liste i romformularen.</p>`);
+    $w.querySelectorAll("[data-remove]").forEach((cb) => (cb.onchange = async () => {
+      if (!confirm(`Fjern "${cb.value}" fra listen?`)) { cb.checked = false; return; }
+      try { await updateDoc(doc(db, "settings", "profileOptions"), { [cb.dataset.remove]: arrayRemove(cb.value) }); } catch (e) { showError(e); }
+    }));
+  };
+  drawWords();
+  listen(onSnapshot(doc(db, "settings", "profileOptions"), () => setTimeout(drawWords, 0)));
   document.getElementById("newlib").onclick = async () => {
     try { go(`#/bibliotek/${await saveLibraryRum(null, emptyPriv(), "")}`); } catch (e) { showError(e); }
   };

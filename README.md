@@ -29,6 +29,7 @@ Live: <https://smagning.vejleaa.dk> (og <https://smagning-286ed.web.app>).
 |---|---|
 | `users/{uid}` | navn, e-mail, `role` (`medlem` eller `admin`) |
 | `tastings/{id}` | titel, dato, tid, beskrivelse, `status` (`tilmelding` / `igang` / `afsluttet`), `blind`, `participantIds[]` |
+| `settings/profileOptions` | admins egne ord til duft/smag/aromaer (lægges oven i de faste lister i `PROFILE_GROUPS` i `app.js`) – alle kan læse, kun admin skriver |
 | `rumLibrary/{id}` | master-data for en rom (navn, destilleri, land, alder, ABV, type, fad, pris, `profile` med afkrydsede duft/smag/aromaer, `adminNotes`, `webInfo`) – kun admin |
 | `rumLibrary/{id}/media/image` | `data`: billedet som JPEG data-URL (max 800 px, skaleret i browseren) – kun admin |
 | `tastings/{id}/rums/{rumId}` | `order`, `status` (`aaben` / `lukket`), `publicName` ("Rom nr. 1" ved blindsmagning), `libraryId` |
@@ -102,7 +103,7 @@ npm run test:e2e                  # i et andet vindue
 Appen bruger automatisk emulatorerne, når den åbnes fra `localhost` /
 `127.0.0.1` (se toppen af `public/app.js`). `tests/e2e.mjs` gennemgår hele
 forløbet med to brugere i browseren og efterprøver reglerne direkte via REST
-(37 tjek: rolle, bibliotek med billede og smagsprofil, oprettelse, tilmelding, skjult
+(41 tjek: rolle, bibliotek med billede, smagsprofil og egne ord, oprettelse, tilmelding, skjult
 afsløring før bedømmelse, afsløring med billede efter, låst bedømmelse,
 samlet vurdering, rangliste, afslutning, historik i biblioteket).
 
