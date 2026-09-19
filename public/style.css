@@ -103,3 +103,6 @@ details summary { cursor: pointer; font-weight: 600; }
 #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 .script p { font-size: 1.15rem; line-height: 1.6; }
 ol li { margin-bottom: 10px; }
+.grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0 10px; }
+@media (max-width: 520px) { .grid3 { grid-template-columns: 1fr; } }
+label.sub { margin-top: 4px; font-weight: 500; font-size: 0.9rem; }

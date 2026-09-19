@@ -162,7 +162,9 @@ await member.locator('#rate [name=naese]').dispatchEvent('input');
 check('Bedømmelse: vægtet score vises live (5,4)', (await member.locator('#live-weighted').textContent()) === '5,4');
 await member.locator('#rate [name=naese]').fill('7');
 await member.locator('.tags label', { hasText: 'Vanilje' }).click();
-await member.fill('#rate [name=guess]', 'Jamaica');
+await member.fill('#rate [name=guessCountry]', 'jamaica');
+await member.fill('#rate [name=guessAbv]', '41');
+await member.fill('#rate [name=guessName]', 'Appleton');
 await member.fill('#rate [name=comment]', 'Dejlig');
 await member.click('#rate button[type=submit]');
 await member.waitForSelector('.reveal', { timeout: 10000 });
@@ -170,6 +172,7 @@ const after = await member.locator('#app').textContent();
 check('Afsløring: navn og hemmelig note vises efter bedømmelse', after.includes('Appleton Estate 12') && after.includes('HEMMELIG NOTE'));
 check('Afsløring: admins smagsprofil vises (duft, smag, aromaer)', after.includes('Administratorens smagsprofil') && after.includes('Kraftig') && after.includes('Lang eftersmag') && after.includes('Banan') && after.includes('Marcipan'));
 check('Afsløring: profil skjult før bedømmelse', !pageText.includes('Kraftig'));
+check('Gæt: land, alkohol og navn vises hver for sig og markeres rigtige (43 vs 41 inden for 2)', after.includes('Land: jamaica ✓') && after.includes('Alkohol: 41 % ✓') && after.includes('Navn: Appleton ✓'));
 check('Afsløring: billede vises', (await member.locator('.reveal img.rumimg').getAttribute('src') || '').startsWith('data:image/jpeg'));
 // Vægtet: 0,05·5 + 0,2·7 + 0,5·5 + 0,25·5 = 5,4. Uvægtet snit = 5,5 og egen samlet = 8,0 må IKKE stå som fælles score.
 check('Samlet vurdering vises når alle (1 af 1) har bedømt – vægtet 5,4', after.includes('5,4') && !after.includes('5,5 / 10') && !after.includes('8,0 / 10') && after.includes('Bo Medlem'));
@@ -207,7 +210,7 @@ check('Regler: medlem kan ikke afmelde sig efter afslutning', r.status === 403, 
 await admin.goto(BASE + `/#/bibliotek/${libId}`);
 await admin.waitForFunction(() => (document.getElementById('hist')?.textContent || '').includes('Romaften'), null, { timeout: 15000 });
 const hist = await admin.locator('#hist').textContent();
-check('Bibliotek: historik viser smagningen, vægtet score og deltager', hist.includes('Romaften i Vejle') && hist.includes('5,4') && !hist.includes('8,0') && hist.includes('Bo Medlem') && hist.includes('Vanilje'));
+check('Bibliotek: historik viser smagningen, vægtet score og deltager', hist.includes('Romaften i Vejle') && hist.includes('5,4') && !hist.includes('8,0') && hist.includes('Bo Medlem') && hist.includes('Vanilje') && hist.includes('Land: jamaica ✓'));
 await admin.screenshot({ path: 'tests/screenshots/shot-library.png', fullPage: true });
 
 // --- 8. AI-plan: nøgle, forslag (API'et mockes), anvend rækkefølge, manuskript ---

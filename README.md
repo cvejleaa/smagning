@@ -41,7 +41,7 @@ Live: <https://smagning.vejleaa.dk> (og <https://smagning-286ed.web.app>).
 | `rumLibrary/{id}/media/image` | `data`: billedet som JPEG data-URL (max 800 px, skaleret i browseren) – kun admin |
 | `tastings/{id}/rums/{rumId}` | `order`, `status` (`aaben` / `lukket`), `publicName` ("Rom nr. 1" ved blindsmagning), `libraryId` |
 | `tastings/{id}/rums/{rumId}/private/info` | kopi af bibliotekets felter plus `imageData` på tidspunktet for smagningen – kan først læses efter egen bedømmelse |
-| `tastings/{id}/ratings/{rumId}_{uid}` | `scores` pr. dimension, `tags`, `guess`, `comment` – kan ikke ændres efter oprettelse |
+| `tastings/{id}/ratings/{rumId}_{uid}` | `scores` pr. dimension, `tags`, `guess` (`{country, abv, name}` ved blindsmagning), `comment` – kan ikke ændres efter oprettelse |
 
 ### AI-hjælp: rækkefølge og historier
 
@@ -127,7 +127,7 @@ npm run test:e2e                  # i et andet vindue
 Appen bruger automatisk emulatorerne, når den åbnes fra `localhost` /
 `127.0.0.1` (se toppen af `public/app.js`). `tests/e2e.mjs` gennemgår hele
 forløbet med to brugere i browseren og efterprøver reglerne direkte via REST
-(50 tjek: rolle, bibliotek med billede, smagsprofil og egne ord, oprettelse, tilmelding, skjult
+(51 tjek: rolle, bibliotek med billede, smagsprofil og egne ord, oprettelse, tilmelding, skjult
 afsløring før bedømmelse, afsløring med billede efter, låst bedømmelse,
 samlet vurdering, rangliste, afslutning, historik i biblioteket, AI-plan
 med mocket API, anvendt rækkefølge og manuskript).
