@@ -112,6 +112,8 @@ const tId = admin.url().split('/').pop();
 await admin.fill('#tform [name=title]', 'Romaften i Vejle');
 await admin.selectOption('#tform [name=status]', 'igang');
 await admin.click('#tform button[type=submit]');
+await admin.waitForFunction(() => document.querySelector('#toast.show')?.textContent === 'Smagningen er gemt', null, { timeout: 10000 });
+check('Admin: "Gem smagning" bekræftes synligt', true);
 await sleep(800);
 await admin.waitForSelector('#libpick');
 await admin.selectOption('#libpick', libId);
